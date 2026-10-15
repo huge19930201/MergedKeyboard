@@ -426,9 +426,37 @@ static void MKHandleKeyboardRoot(UIView *root) {
 	%orig;
 	@try {
 		if (self.window == nil) return;
+
+		// 沿响应者链向上找 UIInputViewController（不能只查一层：
+		// 深层子视图的 nextResponder 先是它的 superview，不是控制器）
 		UIResponder *r = [self nextResponder];
-		if ([r isKindOfClass:[UIInputViewController class]]) {
-			MKHandleKeyboardRoot([(UIInputViewController *)r view]);
+		int guard = 0;
+		while (r && guard++ < 12) {
+			if ([r isKindOfClass:[UIInputViewController class]]) {
+				MKHandleKeyboardRoot([(UIInputViewController *)r view]);
+				return;
+			}
+			r = [r nextResponder];
+		}
+		// 兜底：从 superview 链爬到根视图再看它的控制器
+		UIView *v = self;
+		int g2 = 0;
+		while (v.superview && g2++ < 12) v = v.superview;
+		UIResponder *rr = [v nextResponder];
+		if ([rr isKindOfClass:[UIInputViewController class]]) {
+			MKHandleKeyboardRoot([(UIInputViewController *)rr view]);
+		}
+	} @catch (NSException *exception) { }
+}
+%end
+
+%hook UIWindow
+- (void)didAddSubview:(UIView *)subview {
+	%orig;
+	@try {
+		UIViewController *vc = self.rootViewController;
+		if ([vc isKindOfClass:[UIInputViewController class]]) {
+			MKHandleKeyboardRoot(vc.view);
 		}
 	} @catch (NSException *exception) { }
 }
@@ -605,6 +633,18 @@ static BOOL MKEmergencyDisabled(void) {
 			CFNotificationSuspensionBehaviorDeliverImmediately);
 
 		%init(KeyboardTheme);
+
+		// 1.1.1：无条件的「加载证明」，排掉一切开关因素。
+		// 只要文件出现，就说明 dylib 确实被加载了；不出现就是加载/注入层面的问题。
+		@try {
+			NSString *line = [NSString stringWithFormat:
+				@"MergedKeyboard loaded. bid=%@ pid=%d date=%@\n",
+				bid, (int)getpid(), [NSDate date]];
+			for (NSString *p in @[@"/var/mobile/Library/Preferences/com.merged.keyboard.loaded.txt",
+			                      @"/var/mobile/com.merged.keyboard.loaded.txt"]) {
+				[line writeToFile:p atomically:YES encoding:NSUTF8StringEncoding error:nil];
+			}
+		} @catch (NSException *exception) { }
 
 		// 诊断：装了 1.0.4 后打开微信，3 秒后会弹出插件实际读到的值
 		MKShowDebugIfNeeded();

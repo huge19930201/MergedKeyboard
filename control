@@ -1,6 +1,6 @@
 Package: com.merged.keyboard
 Name: MergedKeyboard
-Version: 1.1.0
+Version: 1.1.1
 Architecture: iphoneos-arm64
 Description: 合并版键盘增强插件：微信键盘功能栏 + 全键盘主题（背景/圆角/边框/阴影/候选栏配色/深浅色），完全免费无授权。
 Maintainer: MergedKeyboard Dev <dev@example.com>
