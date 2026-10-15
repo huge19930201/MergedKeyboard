@@ -271,7 +271,7 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 
 /*
  * 1.0.6 决定性诊断：UIInputViewController 是键盘扩展的根控制器，
- * 只要插件被注入到键盘扩展进程，这个 hook 一定命中 —— 不依赖任何 WB*/UIKB* 类名。
+ * 只要插件被注入到键盘扩展进程，这个 hook 一定命中 —— 不依赖任何 WB 或 UIKB 系列类名。
  * 命中后把整个键盘染成半透明红，并弹出诊断信息。
  */
 static BOOL MKDebugAlertShown = NO;
