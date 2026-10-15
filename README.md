@@ -37,7 +37,7 @@
 
 ```
 MergedKeyboard/
-├── Makefile                       # Theos 构建脚本（rootless 布局，arm64/arm64e）
+├── Makefile                       # Theos 构建脚本（arm64/arm64e，scheme 由 CI 传入）
 ├── control                        # deb 包描述
 ├── MergedKeyboard.plist           # Substrate 注入过滤器（所有 UIKit 进程）
 ├── Tweak.xm                       # 主逻辑：所有 %hook + 通知监听 + %ctor
@@ -81,12 +81,46 @@ make install          # 需要 THEOS_DEVICE_IP / THEOS_DEVICE_PORT
 步骤：
 1. 把本仓库推到 GitHub（见下方「推送到 GitHub」）。
 2. 在 GitHub 仓库 **Actions** 页点 **Build MergedKeyboard (arm64e)** → **Run workflow**（或推送到 `main`/`master` 自动触发）。
-3. 跑完后在 **Artifacts** 里下载 `MergedKeyboard-arm64e-rootless`（里面是 `packages/*.deb`）。
-4. 想发正式版：打一个 tag（`git tag 1.0.0 && git push --tags`），workflow 会把 `.deb` 自动上传到 Release。
+3. 跑完后在 **Artifacts** 里下载对应方案（里面是 `.deb`）：
+   - `MergedKeyboard-arm64e-rootless` → Dopamine / palera1n(rootless) / XinaA15
+   - `MergedKeyboard-arm64e-roothide` → **Dopamine RootHide 版**
+4. 想发正式版：打一个 tag（`git tag 1.0.2 && git push --tags`），workflow 会把 `.deb` 自动上传到 Release。
 
-成品为 **rootless** 格式的 `iphoneos-arm64.deb`，内含 `arm64e` + `arm64` 两个架构（control 的 `Architecture: iphoneos-arm64` 同时覆盖两者），适配 Dopamine / palera1n rootless 等现代越狱。
+两种包内都含 **arm64e + arm64** 双架构。
 
-> 若要出 **roothide** 版本，把 workflow 里的 `THEOS_PACKAGE_SCHEME=rootless` 改成 `THEOS_PACKAGE_SCHEME=roothide` 即可（或加一个 matrix job 同时出两种）。
+> ⚠️ **rootless 与 roothide 不能混用**：RootHide 越狱必须装 `roothide` 那个包
+> （它的安装前缀是 `.jbroot`，rootless 包装到 `/var/jb` 在 RootHide 下路径不对）。
+>
+> 注意：**官方 theos 并不支持 `roothide` scheme**，workflow 在 roothide job 里会把
+> `$THEOS` 整个换成 `https://github.com/roothide/theos`（它才有 `vendor/mod/roothide`），
+> 再把官方 theos 里下好的 `sdks/` 和 `toolchain/` 拷过去。
+
+---
+
+## RootHide（Dopamine RootHide）用户须知
+
+1. 装 `MergedKeyboard-arm64e-roothide` 这个包，用 **Sileo / Zebra（RootHide 版）** 安装。
+2. 装完注销（respring）生效。
+3. 插件**不会注入 SpringBoard / 设置 / backboardd 等系统进程**（`Tweak.xm` 的 `%ctor` 里有黑名单），
+   所以不会出现锁屏密码键盘崩溃导致的黑屏。
+
+### 万一还是进不去系统（救砖）
+
+- **方法 A（推荐）**：开机/重启时进入 RootHide 的 **安全模式**（越狱不注入任何 tweak），
+  进桌面后到 Sileo 卸载 `com.merged.keyboard`。
+- **方法 B**：用 Dopamine RootHide 设置里的 **关闭「Tweak 注入」** 重新越狱一次，再卸载。
+- **方法 C**：SSH 进手机，删掉这两个文件：
+  ```sh
+  rm -f .jbroot/Library/MobileSubstrate/DynamicLibraries/MergedKeyboard.dylib
+  rm -f .jbroot/Library/MobileSubstrate/DynamicLibraries/MergedKeyboard.plist
+  killall -9 SpringBoard
+  ```
+- **方法 D（紧急开关，无需卸载）**：在手机上建一个空文件即可让插件彻底失效：
+  ```
+  /var/mobile/Library/Preferences/com.merged.keyboard.disabled
+  ```
+  用 Filza 新建空文件，或 SSH 执行 `touch /var/mobile/Library/Preferences/com.merged.keyboard.disabled`，
+  然后注销。`%ctor` 检测到该文件会直接 return，插件等于没装。
 
 ---
 
