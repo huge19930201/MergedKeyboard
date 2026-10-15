@@ -195,10 +195,10 @@ BOOL MKViewIsDarkMode(UIView *view) {
 	NSDictionary *fb = MKLoadPrefsFallback();
 	_prefsSource = fb ? @"兜底(NSUserDefaults/文件)" : @"CFPreferences";
 
-	_enabled                      = MKBool(@"enabled", NO, fb);
-	// 1.0.6 诊断构建：无条件开启，这样即使偏好完全读不到，也能靠"键盘变红"
-	// 区分「没注入」和「注入了但读不到设置」。1.0.7 会恢复由设置开关控制。
-	_debugEnabled                 = YES;
+	// 默认开启（与原版一致）：装上去就能看到效果，用户可自行关闭
+	_enabled                      = MKBool(@"enabled", YES, fb);
+	// 诊断默认开启，确认生效后用户在设置里关掉即可
+	_debugEnabled                 = MKBool(@"debug", YES, fb);
 
 	_darkColorHex                 = MKStr(@"darkColor", @"#202020", fb);
 	_lightColorHex                = MKStr(@"lightColor", @"#F2F2F2", fb);
@@ -314,6 +314,27 @@ BOOL MKViewIsDarkMode(UIView *view) {
 	}
 	for (NSString *c in cls) {
 		[s appendFormat:@"%@: %@\n", c, NSClassFromString(c) ? @"有 ✅" : @"无"];
+	}
+
+	[s appendString:@"\n--- 实际读到的原始值 ---\n"];
+	NSDictionary *raw = MKLoadPrefsFallback();
+	if (raw.count) {
+		for (NSString *k in [raw.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+			[s appendFormat:@"%@ = %@\n", k, raw[k]];
+		}
+	} else {
+		[s appendString:@"(兜底字典为空)\n"];
+	}
+	CFArrayRef keys = CFPreferencesCopyKeyList((__bridge CFStringRef)kPrefsID,
+	                                           kCFPreferencesCurrentUser,
+	                                           kCFPreferencesAnyHost);
+	if (keys) {
+		NSDictionary *cf = (__bridge_transfer NSDictionary *)CFPreferencesCopyMultiple(
+			keys, (__bridge CFStringRef)kPrefsID, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+		[s appendFormat:@"CFPreferences 键数量: %lu\n", (unsigned long)cf.count];
+		CFRelease(keys);
+	} else {
+		[s appendString:@"CFPreferences 键列表为空\n"];
 	}
 	return s;
 }

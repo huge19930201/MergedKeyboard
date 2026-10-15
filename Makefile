@@ -1,27 +1,24 @@
 # MergedKeyboard — 合并版键盘增强插件
-# 功能：微信键盘功能栏（来自 WXKBToolbar）+ 键盘主题引擎（来自 Keyboardhook）
-# 构建环境：macOS + Theos + 新版 iOS SDK（rootless 布局）
+# 功能：微信输入法键盘主题（背景/圆角/边框/阴影/候选栏配色/深浅色）
+#      + 微信输入法顶部功能栏（来自 WXKBToolbar）
 #
-# 注意：本工程为全新重写的开源实现，不含任何付费授权 / 激活校验逻辑。
+# 构建环境：Theos + iOS SDK。打包方案（rootless / roothide）由 CI 传入。
+#
+# 本工程为全新重写的开源实现，不含任何付费授权 / 激活校验逻辑。
+#
+# ⚠️ 只产出一个 dylib，只注入微信输入法键盘扩展（com.tencent.wetype.keyboard）。
+# 微信输入法本身就是系统级输入法，任何 App 里弹出的都是它，
+# 所以只需要注入它一个进程，就能在所有 App 里生效，
+# 同时彻底避开「注入所有 UIKit 进程」带来的黑屏风险。
 
-# 目标 SDK 取 theos/sdks 中最新的（当前 16.5），最小部署版本 14.0
 TARGET := iphone:clang:latest:14.0
-# 主推 arm64e，同时保留 arm64 以兼容老设备 / 旧越狱
 ARCHS := arm64e arm64
 
 INSTALL_TARGET := root
-THEOS_PACKAGE_SCHEME := rootless
-TWEAK_NAME := MergedKeyboard
+TWEAK_NAME = MergedKeyboard
 
-# ---- 源文件 ----
-MergedKeyboard_FILES = Tweak.xm \
-                       KeyboardThemeEngine.m \
-                       MergedKBToolbar.m
-
-# 用 ARC 简化内存管理
+MergedKeyboard_FILES = Tweak.xm KeyboardThemeEngine.m MergedKBToolbar.m
 MergedKeyboard_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
-
-# 键盘相关私有类在 UIKit 内，不需要额外私有框架链接（运行时通过 NSClassFromString / %hook 获取）
 MergedKeyboard_FRAMEWORKS = UIKit CoreGraphics QuartzCore
 
 include $(THEOS)/makefiles/common.mk

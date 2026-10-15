@@ -11,6 +11,7 @@
  */
 
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import "KeyboardThemeEngine.h"
 #import "MergedKBToolbar.h"
@@ -65,18 +66,61 @@ static void MKApplyKeyDecoration(UIView *v) {
 	}
 }
 
+#pragma mark - 通用兜底：不依赖任何私有类名的递归上色
+
+/*
+ * 微信输入法内部用的 WB* / UIKB* 类名随时可能随版本变化，
+ * 一旦类名对不上，所有 %hook 都不会命中，表现就是「注入了但完全没变化」。
+ * 这里提供一条完全不依赖类名的兜底路径：从键盘根视图开始递归，
+ * 把所有「背景不透明」的视图换成用户配置的颜色，并按需套圆角/边框/阴影。
+ */
+static void MKApplyThemeRecursive(UIView *v, int depth) {
+	if (!v || depth > 6) return;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		UIColor *cur = v.backgroundColor;
+		if (cur) {
+			CGFloat a = CGColorGetAlpha(cur.CGColor);
+			if (a > 0.05) {
+				v.backgroundColor = [e keyboardBackgroundColorForView:v];
+				MKApplyKeyDecoration(v);
+			}
+		}
+		for (UIView *sub in v.subviews) {
+			MKApplyThemeRecursive(sub, depth + 1);
+		}
+	} @catch (NSException *exception) { }
+}
+
+static CFTimeInterval MKLastRootThemeApply = -1.0;
+
+static void MKApplyThemeToKeyboardRoot(UIView *root) {
+	if (!root) return;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if (![e isEnabled]) return;
+		// 键盘每次布局都会回调，做一次节流，避免滚动/输入时卡顿
+		CFTimeInterval now = CACurrentMediaTime();
+		if (MKLastRootThemeApply > 0 && now - MKLastRootThemeApply < 0.35) return;
+		MKLastRootThemeApply = now;
+		MKApplyThemeRecursive(root, 0);
+	} @catch (NSException *exception) { }
+}
+
 #pragma mark - 诊断弹窗（1.0.4：用来定位「设置了但不生效」）
 
-// 只在微信里弹，避免每个 App 都弹。默认开启，拿到诊断信息后可在设置里关掉。
+// 诊断弹窗只弹一次；设置被改动后重置，方便反复排查
+static BOOL MKDebugAlertShown = NO;
+
+// 只在微信/微信输入法里弹，避免每个 App 都弹。默认开启，拿到诊断信息后可在设置里关掉。
 static void MKShowDebugIfNeeded(void) {
 	@try {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 		if (![e debugEnabled]) return;
 		NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
-		BOOL isWeChat  = [bid isEqualToString:@"com.tencent.xin"];
-		BOOL isWetypeKB = [bid isEqualToString:@"com.tencent.wetype.keyboard"] ||
-		                  [bid hasPrefix:@"com.tencent.wetype"];
-		if (!isWeChat && !isWetypeKB) return;
+		// 只在微信主 App 里弹：键盘扩展进程没有 keyWindow，
+		// 这里的弹窗会抢掉键盘扩展里那份诊断弹窗的位置
+		if (![bid isEqualToString:@"com.tencent.xin"]) return;
 
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
 		               dispatch_get_main_queue(), ^{
@@ -98,10 +142,16 @@ static void MKShowDebugIfNeeded(void) {
 					alertControllerWithTitle:@"MergedKeyboard 诊断"
 					                 message:[e debugSummary]
 					          preferredStyle:UIAlertControllerStyleAlert];
-				[ac addAction:[UIAlertAction actionWithTitle:@"好"
-				                                       style:UIAlertActionStyleDefault
-				                                     handler:nil]];
-				[root presentViewController:ac animated:YES completion:nil];
+			[ac addAction:[UIAlertAction actionWithTitle:@"好"
+			                                       style:UIAlertActionStyleCancel
+			                                     handler:nil]];
+			[ac addAction:[UIAlertAction actionWithTitle:@"复制诊断信息"
+			                                       style:UIAlertActionStyleDefault
+			                                     handler:^(UIAlertAction *action) {
+				[UIPasteboard generalPasteboard].string = [e debugSummary];
+			}]];
+			[root presentViewController:ac animated:YES completion:nil];
+			MKDebugAlertShown = YES;
 			} @catch (NSException *exception) { }
 		});
 	} @catch (NSException *exception) { }
@@ -112,6 +162,9 @@ static void MKShowDebugIfNeeded(void) {
 static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 						  CFStringRef name, const void *object, CFDictionaryRef info) {
 	[[KeyboardThemeEngine shared] reloadPrefs];
+	// 设置改了就允许诊断弹窗再弹一次，并且立刻重新上色（不用等节流窗口）
+	MKDebugAlertShown = NO;
+	MKLastRootThemeApply = -1.0;
 }
 
 #pragma mark - 键盘主题 Hook 组
@@ -274,13 +327,15 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
  * 只要插件被注入到键盘扩展进程，这个 hook 一定命中 —— 不依赖任何 WB 或 UIKB 系列类名。
  * 命中后把整个键盘染成半透明红，并弹出诊断信息。
  */
-static BOOL MKDebugAlertShown = NO;
-
 %hook UIInputViewController
 - (void)viewDidAppear:(BOOL)animated {
 	%orig;
 	@try {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+
+		// 兜底上色：不管微信输入法内部是 WB* 还是别的类名，这条路径一定生效
+		MKApplyThemeToKeyboardRoot(self.view);
+
 		if (![e debugEnabled]) return;
 
 		// 染红 = 「插件确实注入到这个键盘进程了」的铁证
@@ -299,10 +354,22 @@ static BOOL MKDebugAlertShown = NO;
 			                 message:[e debugSummary]
 			          preferredStyle:UIAlertControllerStyleAlert];
 		[ac addAction:[UIAlertAction actionWithTitle:@"好"
-		                                       style:UIAlertActionStyleDefault
+		                                       style:UIAlertActionStyleCancel
 		                                     handler:nil]];
+		[ac addAction:[UIAlertAction actionWithTitle:@"复制诊断信息"
+		                                       style:UIAlertActionStyleDefault
+		                                     handler:^(UIAlertAction *action) {
+			[UIPasteboard generalPasteboard].string = [e debugSummary];
+		}]];
 		[self presentViewController:ac animated:YES completion:nil];
 		MKDebugAlertShown = YES;
+	} @catch (NSException *exception) { }
+}
+
+- (void)viewDidLayoutSubviews {
+	%orig;
+	@try {
+		MKApplyThemeToKeyboardRoot(self.view);
 	} @catch (NSException *exception) { }
 }
 %end
