@@ -62,6 +62,45 @@ static void MKApplyKeyDecoration(UIView *v) {
 	}
 }
 
+#pragma mark - 诊断弹窗（1.0.4：用来定位「设置了但不生效」）
+
+// 只在微信里弹，避免每个 App 都弹。默认开启，拿到诊断信息后可在设置里关掉。
+static void MKShowDebugIfNeeded(void) {
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if (![e debugEnabled]) return;
+		NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
+		if (![bid isEqualToString:@"com.tencent.xin"]) return;
+
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
+		               dispatch_get_main_queue(), ^{
+			@try {
+				UIViewController *root = nil;
+				if (@available(iOS 13.0, *)) {
+					for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+						if (scene.activationState != UISceneActivationStateForegroundActive) continue;
+						if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+						for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+							if (w.isKeyWindow && w.rootViewController) root = w.rootViewController;
+						}
+					}
+				}
+				if (!root) root = [UIApplication sharedApplication].keyWindow.rootViewController;
+				if (!root) return;
+
+				UIAlertController *ac = [UIAlertController
+					alertControllerWithTitle:@"MergedKeyboard 诊断"
+					                 message:[e debugSummary]
+					          preferredStyle:UIAlertControllerStyleAlert];
+				[ac addAction:[UIAlertAction actionWithTitle:@"好"
+				                                       style:UIAlertActionStyleDefault
+				                                     handler:nil]];
+				[root presentViewController:ac animated:YES completion:nil];
+			} @catch (NSException *exception) { }
+		});
+	} @catch (NSException *exception) { }
+}
+
 #pragma mark - 偏好变更通知
 
 static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
@@ -350,5 +389,8 @@ static BOOL MKEmergencyDisabled(void) {
 			CFNotificationSuspensionBehaviorDeliverImmediately);
 
 		%init(KeyboardTheme);
+
+		// 诊断：装了 1.0.4 后打开微信，3 秒后会弹出插件实际读到的值
+		MKShowDebugIfNeeded();
 	}
 }

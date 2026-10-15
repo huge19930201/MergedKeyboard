@@ -37,6 +37,68 @@ UIColor *MKColorFromHex(NSString *hex) {
 	return [UIColor colorWithRed:r green:g blue:b alpha:a];
 }
 
+#pragma mark - 偏好读取（多重兜底）
+
+/*
+ * CFPreferences 在被沙盒限制的 App（微信这类 App Store 应用）里可能读不到别的域，
+ * 表现为「设置了但插件完全没反应、值永远是默认」。所以这里做三级兜底：
+ *   1) CFPreferences（正常路径）
+ *   2) NSUserDefaults -persistentDomainForName:
+ *   3) 直接读 /var/mobile/Library/Preferences/*.plist 文件
+ */
+static NSDictionary *MKLoadPrefsFallback(void) {
+	@try {
+		NSDictionary *d = [[NSUserDefaults standardUserDefaults] persistentDomainForName:kPrefsID];
+		if (d.count) return d;
+	} @catch (NSException *e) { }
+
+	NSArray *paths = @[
+		@"/var/mobile/Library/Preferences/com.merged.keyboard.plist",
+		@"/var/jb/var/mobile/Library/Preferences/com.merged.keyboard.plist",
+		@"/private/var/mobile/Library/Preferences/com.merged.keyboard.plist"
+	];
+	for (NSString *p in paths) {
+		@try {
+			NSDictionary *x = [NSDictionary dictionaryWithContentsOfFile:p];
+			if (x.count) return x;
+		} @catch (NSException *e) { }
+	}
+	return nil;
+}
+
+static BOOL MKBool(NSString *k, BOOL def, NSDictionary *fb) {
+	Boolean valid = false;
+	Boolean v = CFPreferencesGetAppBooleanValue((__bridge CFStringRef)k,
+	                                            (__bridge CFStringRef)kPrefsID, &valid);
+	if (valid) return (BOOL)v;
+	id o = fb[k];
+	if ([o isKindOfClass:[NSNumber class]]) return [(NSNumber *)o boolValue];
+	if ([o isKindOfClass:[NSString class]]) {
+		NSString *s = [(NSString *)o lowercaseString];
+		return ([s isEqualToString:@"1"] || [s isEqualToString:@"yes"] ||
+		        [s isEqualToString:@"true"] || [s isEqualToString:@"on"]);
+	}
+	return def;
+}
+
+static NSString *MKStr(NSString *k, NSString *def, NSDictionary *fb) {
+	id v = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)k,
+	                                                       (__bridge CFStringRef)kPrefsID);
+	if ([v isKindOfClass:[NSString class]] && [(NSString *)v length]) return v;
+	id o = fb[k];
+	if ([o isKindOfClass:[NSString class]] && [(NSString *)o length]) return o;
+	return def;
+}
+
+static double MKDouble(NSString *k, double def, NSDictionary *fb) {
+	id v = (__bridge_transfer id)CFPreferencesCopyAppValue((__bridge CFStringRef)k,
+	                                                       (__bridge CFStringRef)kPrefsID);
+	if ([v respondsToSelector:@selector(doubleValue)]) return [(id)v doubleValue];
+	id o = fb[k];
+	if ([o respondsToSelector:@selector(doubleValue)]) return [(id)o doubleValue];
+	return def;
+}
+
 BOOL MKViewIsDarkMode(UIView *view) {
 	// 优先用视图自身的 traitCollection，没有再退回屏幕
 	UITraitCollection *tc = nil;
@@ -88,6 +150,10 @@ BOOL MKViewIsDarkMode(UIView *view) {
 	BOOL   _hideSystemKeyBackground;
 
 	BOOL   _toolbarEnabled;
+
+	// 诊断
+	BOOL   _debugEnabled;
+	NSString *_prefsSource;
 }
 
 + (instancetype)shared {
@@ -122,55 +188,46 @@ BOOL MKViewIsDarkMode(UIView *view) {
 }
 
 - (void)reloadPrefs {
-	// 使用 CFPreferences 读取本插件设置（App 与 tweak 共享同一份 plist）
-	CFStringRef key = (__bridge CFStringRef)kPrefsID;
-	Boolean valid = false;
+	@try {
+		CFPreferencesAppSynchronize((__bridge CFStringRef)kPrefsID);
+	} @catch (NSException *e) { }
 
-#define RD_BOOL(_name, _def) \
-	({ Boolean _v = CFPreferencesGetAppBooleanValue((__bridge CFStringRef)_name, key, &valid); \
-	   valid ? _v : _def; })
+	NSDictionary *fb = MKLoadPrefsFallback();
+	_prefsSource = fb ? @"兜底(NSUserDefaults/文件)" : @"CFPreferences";
 
-	_enabled = RD_BOOL(@"enabled", NO);
+	_enabled                      = MKBool(@"enabled", NO, fb);
+	_debugEnabled                 = MKBool(@"debug", NO, fb);
 
-	_darkColorHex  = (__bridge_transfer NSString *)CFPreferencesCopyAppValue(CFSTR("darkColor"), key);
-	if (!_darkColorHex) _darkColorHex = @"#202020";
-	_lightColorHex = (__bridge_transfer NSString *)CFPreferencesCopyAppValue(CFSTR("lightColor"), key);
-	if (!_lightColorHex) _lightColorHex = @"#F2F2F2";
+	_darkColorHex                 = MKStr(@"darkColor", @"#202020", fb);
+	_lightColorHex                = MKStr(@"lightColor", @"#F2F2F2", fb);
 
-	_enableCandidateColor = RD_BOOL(@"enableCandidateColor", NO);
-	_candidateColorHex = (__bridge_transfer NSString *)CFPreferencesCopyAppValue(CFSTR("candidateColor"), key);
-	if (!_candidateColorHex) _candidateColorHex = @"#FFFFFF";
-	_enableCandidateGradientColor = RD_BOOL(@"enableCandidateGradientColor", NO);
-	_candidateGradientHex = (__bridge_transfer NSString *)CFPreferencesCopyAppValue(CFSTR("candidateGradientColor"), key);
-	if (!_candidateGradientHex) _candidateGradientHex = @"#FFFFFF";
-	_hideSeparatorLine = RD_BOOL(@"hideSeparatorLine", NO);
+	_enableCandidateColor         = MKBool(@"enableCandidateColor", NO, fb);
+	_candidateColorHex            = MKStr(@"candidateColor", @"#FFFFFF", fb);
+	_enableCandidateGradientColor = MKBool(@"enableCandidateGradientColor", NO, fb);
+	_candidateGradientHex         = MKStr(@"candidateGradientColor", @"#FFFFFF", fb);
+	_hideSeparatorLine            = MKBool(@"hideSeparatorLine", NO, fb);
 
-	_enableCornerRadius = RD_BOOL(@"enableCornerRadius", NO);
-	_cornerRadius = (CGFloat)[self _doubleForKey:@"cornerRadius" default:8.0];
-	_enableSystemKeyboardCorner = RD_BOOL(@"enableSystemKeyboardCorner", NO);
-	_systemKeyboardCornerRadius = (CGFloat)[self _doubleForKey:@"systemKeyboardCornerRadius" default:12.0];
+	_enableCornerRadius           = MKBool(@"enableCornerRadius", NO, fb);
+	_cornerRadius                 = (CGFloat)MKDouble(@"cornerRadius", 8.0, fb);
+	_enableSystemKeyboardCorner   = MKBool(@"enableSystemKeyboardCorner", NO, fb);
+	_systemKeyboardCornerRadius   = (CGFloat)MKDouble(@"systemKeyboardCornerRadius", 12.0, fb);
 
-	_hideChineseEnglish = RD_BOOL(@"hideChineseEnglish", NO);
+	_hideChineseEnglish           = MKBool(@"hideChineseEnglish", NO, fb);
 
-	_enableKeyBorder = RD_BOOL(@"enableKeyBorder", NO);
-	_keyBorderDarkHex = (__bridge_transfer NSString *)CFPreferencesCopyAppValue(CFSTR("keyBorderDarkColor"), key);
-	if (!_keyBorderDarkHex) _keyBorderDarkHex = @"#000000";
-	_keyBorderLightHex = (__bridge_transfer NSString *)CFPreferencesCopyAppValue(CFSTR("keyBorderLightColor"), key);
-	if (!_keyBorderLightHex) _keyBorderLightHex = @"#000000";
-	_keyBorderOpacity = (CGFloat)[self _doubleForKey:@"keyBorderOpacity" default:1.0];
-	_keyBorderWidth = (CGFloat)[self _doubleForKey:@"keyBorderWidth" default:1.0];
+	_enableKeyBorder              = MKBool(@"enableKeyBorder", NO, fb);
+	_keyBorderDarkHex             = MKStr(@"keyBorderDarkColor", @"#000000", fb);
+	_keyBorderLightHex            = MKStr(@"keyBorderLightColor", @"#000000", fb);
+	_keyBorderOpacity             = (CGFloat)MKDouble(@"keyBorderOpacity", 1.0, fb);
+	_keyBorderWidth               = (CGFloat)MKDouble(@"keyBorderWidth", 1.0, fb);
 
-	_enableKeyShadow = RD_BOOL(@"enableKeyShadow", NO);
-	_keyShadowOpacity = (CGFloat)[self _doubleForKey:@"keyShadowOpacity" default:0.3];
-	_keyShadowOffsetX = (CGFloat)[self _doubleForKey:@"keyShadowOffsetX" default:0.0];
-	_keyShadowOffsetY = (CGFloat)[self _doubleForKey:@"keyShadowOffsetY" default:1.0];
-	_keyShadowRadius = (CGFloat)[self _doubleForKey:@"keyShadowRadius" default:2.0];
+	_enableKeyShadow              = MKBool(@"enableKeyShadow", NO, fb);
+	_keyShadowOpacity             = (CGFloat)MKDouble(@"keyShadowOpacity", 0.3, fb);
+	_keyShadowOffsetX             = (CGFloat)MKDouble(@"keyShadowOffsetX", 0.0, fb);
+	_keyShadowOffsetY             = (CGFloat)MKDouble(@"keyShadowOffsetY", 1.0, fb);
+	_keyShadowRadius              = (CGFloat)MKDouble(@"keyShadowRadius", 2.0, fb);
 
-	_hideSystemKeyBackground = RD_BOOL(@"hideSystemKeyBackground", NO);
-
-	_toolbarEnabled = RD_BOOL(@"toolbarEnabled", NO);
-
-#undef RD_BOOL
+	_hideSystemKeyBackground      = MKBool(@"hideSystemKeyBackground", NO, fb);
+	_toolbarEnabled               = MKBool(@"toolbarEnabled", NO, fb);
 }
 
 - (double)_doubleForKey:(NSString *)k default:(double)def {
@@ -228,5 +285,35 @@ BOOL MKViewIsDarkMode(UIView *view) {
 - (CGFloat)keyShadowRadius { return _keyShadowRadius; }
 
 - (BOOL)toolbarEnabled { return _toolbarEnabled; }
+
+#pragma mark - 诊断
+
+- (BOOL)debugEnabled { return _debugEnabled; }
+
+- (NSString *)debugSummary {
+	NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"(nil)";
+	NSMutableString *s = [NSMutableString string];
+	[s appendFormat:@"进程: %@\n", bid];
+	[s appendFormat:@"偏好来源: %@\n", _prefsSource ?: @"(未知)"];
+	[s appendFormat:@"总开关 enabled: %@\n", _enabled ? @"YES ✅" : @"NO ❌"];
+	[s appendFormat:@"微信功能栏: %@\n", _toolbarEnabled ? @"YES" : @"NO"];
+	[s appendFormat:@"深色背景: %@ / 浅色: %@\n", _darkColorHex, _lightColorHex];
+	[s appendFormat:@"键帽圆角: %@(%g) 边框:%@ 阴影:%@\n",
+		_enableCornerRadius ? @"开" : @"关", _cornerRadius,
+		_enableKeyBorder ? @"开" : @"关", _enableKeyShadow ? @"开" : @"关"];
+	[s appendFormat:@"隐藏系统背景: %@\n", _hideSystemKeyBackground ? @"YES" : @"NO"];
+	[s appendString:@"\n--- 类是否命中 ---\n"];
+	static NSArray *cls = nil;
+	if (!cls) {
+		cls = @[@"UIKeyboardDockView", @"UIInputView", @"UIKBKeyView", @"UIKBBackdropView",
+		        @"UIKBKeyBackgroundView", @"UIKeyboardCandidateViewStyle",
+		        @"WBMainInputView", @"WBKeyView", @"WBSecKeyboardKeyView",
+		        @"WBKeyViewItem", @"WBConfigManager"];
+	}
+	for (NSString *c in cls) {
+		[s appendFormat:@"%@: %@\n", c, NSClassFromString(c) ? @"有 ✅" : @"无"];
+	}
+	return s;
+}
 
 @end

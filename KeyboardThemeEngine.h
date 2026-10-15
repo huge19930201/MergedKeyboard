@@ -57,6 +57,12 @@
 #pragma mark - 微信功能栏开关
 - (BOOL)toolbarEnabled;
 
+#pragma mark - 诊断（1.0.4 新增）
+/// 设置里的「显示诊断信息」开关；打开后宿主 App 启动 3 秒会弹窗显示插件实际读到的值
+- (BOOL)debugEnabled;
+/// 诊断文本：进程 / 偏好来源 / 各项实际值 / 微信私有类是否存在
+- (NSString *)debugSummary;
+
 @end
 
 /// 工具函数：把 "#RRGGBB" / "#RRGGBBAA" 解析成 UIColor（支持带 # 或不带）
