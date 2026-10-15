@@ -287,9 +287,30 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 
 #pragma mark - 构造入口
 
+// 紧急开关：存在该文件时插件完全不生效（用于救砖，无需卸载）
+static BOOL MKEmergencyDisabled(void) {
+	static BOOL checked = NO;
+	static BOOL disabled = NO;
+	if (checked) return disabled;
+	checked = YES;
+	@try {
+		NSArray *paths = @[
+			@"/var/mobile/Library/Preferences/com.merged.keyboard.disabled",
+			@"/var/mobile/com.merged.keyboard.disabled"
+		];
+		for (NSString *p in paths) {
+			if ([[NSFileManager defaultManager] fileExistsAtPath:p]) { disabled = YES; break; }
+		}
+	} @catch (NSException *exception) { }
+	return disabled;
+}
+
 %ctor {
 	@autoreleasepool {
-		// ===== 进程白/黑名单：绝不能在 SpringBoard 等系统进程里启用 =====
+		// ===== 0) 紧急开关：手机进不去时，用 Filza/SSH 建一个空文件即可完全停用 =====
+		if (MKEmergencyDisabled()) return;
+
+		// ===== 1) 进程黑名单：绝不能在 SpringBoard 等系统进程里启用 =====
 		// SpringBoard 开机/锁屏时会创建密码键盘（同样是键盘类），
 		// 一旦在这里改动界面就可能把 SpringBoard 搞崩，导致无限重启黑屏。
 		NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
@@ -299,15 +320,22 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 		static dispatch_once_t onceToken;
 		dispatch_once(&onceToken, ^{
 			blacklist = [NSSet setWithObjects:
-				@"com.apple.springboard",   // 桌面（最危险）
-				@"com.apple.Preferences",   // 设置 App
+				@"com.apple.springboard",          // 桌面（最危险）
+				@"com.apple.Preferences",          // 设置 App
 				@"com.apple.backboardd",
 				@"com.apple.mediaserverd",
 				@"com.apple.WebKit.WebContent",
 				@"com.apple.WebKit.Networking",
+				@"com.apple.TextInput.rdt",
+				@"com.apple.assistant_service",
+				@"com.apple.camera",               // 相机锁屏组件
+				@"com.apple.Spotlight",
+				@"com.apple.spotlight",
 				nil];
 		});
 		if ([blacklist containsObject:bid]) return;
+		// 兜底：只要包含 springboard 字样一律跳过（RootHide 下进程名可能被改写）
+		if ([bid rangeOfString:@"springboard" options:NSCaseInsensitiveSearch].location != NSNotFound) return;
 
 		// 初始化偏好
 		[[KeyboardThemeEngine shared] reloadPrefs];
