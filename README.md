@@ -81,12 +81,29 @@ make install          # 需要 THEOS_DEVICE_IP / THEOS_DEVICE_PORT
 步骤：
 1. 把本仓库推到 GitHub（见下方「推送到 GitHub」）。
 2. 在 GitHub 仓库 **Actions** 页点 **Build MergedKeyboard (arm64e)** → **Run workflow**（或推送到 `main`/`master` 自动触发）。
-3. 跑完后在 **Artifacts** 里下载对应方案（里面是 `.deb`）：
-   - `MergedKeyboard-arm64e-rootless` → Dopamine / palera1n(rootless) / XinaA15
-   - `MergedKeyboard-arm64e-roothide` → **Dopamine RootHide 版**
+3. 跑完后在 **Artifacts** 里下载，**只拿 `macos-` 开头的**（里面是 `.deb`）：
+   - `MergedKeyboard-macos-roothide` → **Dopamine RootHide 版 ← 大多数人的选择**
+   - `MergedKeyboard-macos-rootless` → Dopamine / palera1n(rootless) / XinaA15
+   - `MergedKeyboard-linux-*`：Linux 工具链编译，**arm64e ABI 不合规，不要装**（见下）。
 4. 想发正式版：打一个 tag（`git tag 1.0.2 && git push --tags`），workflow 会把 `.deb` 自动上传到 Release。
 
 两种包内都含 **arm64e + arm64** 双架构。
+
+### ⚠️ 为什么必须用 macOS 编出来的包（血泪教训）
+
+Linux(ubuntu) runner 上的 Theos 用的是 Swift 开源工具链，它编出来的 **arm64e 切片不合规**：
+
+| | Linux 产物 | macOS(Xcode) 产物 |
+| --- | --- | --- |
+| arm64e cpusubtype | `0x00000002`（裸 arm64e） | `0x80000002`（**ptrauth 版本化 ABI**） |
+| 链接告警 | `built with an incompatible arm64e ABI compiler` | 无 |
+| iOS 14+ 加载 | dylib 一加载执行首条 objc 消息就 **PAC 校验失败崩溃** | 正常 |
+
+后果：SpringBoard 注入该 dylib → 崩溃 → 注销后**永久黑屏**。
+而且这种崩溃是**信号（SIGBUS/SIGSEGV）不是 NSException**，`@try/@catch` 和进程黑名单都拦不住
+（因为崩溃发生在 `%ctor` 里第一条消息时，黑名单还没跑完）。
+
+所以 CI 里保留了 linux job 只做对照，**真正可用的是 macos job 的产物**。
 
 > ⚠️ **rootless 与 roothide 不能混用**：RootHide 越狱必须装 `roothide` 那个包
 > （它的安装前缀是 `.jbroot`，rootless 包装到 `/var/jb` 在 RootHide 下路径不对）。
@@ -103,6 +120,12 @@ make install          # 需要 THEOS_DEVICE_IP / THEOS_DEVICE_PORT
 2. 装完注销（respring）生效。
 3. 插件**不会注入 SpringBoard / 设置 / backboardd 等系统进程**（`Tweak.xm` 的 `%ctor` 里有黑名单），
    所以不会出现锁屏密码键盘崩溃导致的黑屏。
+
+### 保守版（`-SAFE.deb`）
+
+如果主版仍有问题，用 `-SAFE` 结尾的包：它把 Substrate 过滤器从「所有 UIKit 进程」
+换成**白名单**（微信 / QQ / 短信 / 备忘录 / Safari / 邮件），**SpringBoard 完全不会被注入**，
+所以无论如何都能进桌面。代价是键盘主题只在这几个 App 里生效。
 
 ### 万一还是进不去系统（救砖）
 
