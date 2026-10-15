@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>title</key>
+	<string>MergedKeyboard 设置</string>
+	<key>items</key>
+	<array>
+		<!-- ===== 总开关 ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>总开关</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>启用插件</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>enabled</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+
+		<!-- ===== 键盘背景（深浅色） ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>键盘背景（十六进制颜色，如 #202020）</string>
+			<key>footerText</key><string>深色模式使用 darkColor，浅色模式使用 lightColor。</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTextFieldCell</string>
+			<key>label</key><string>深色背景</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>darkColor</string>
+			<key>default</key><string>#202020</string>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTextFieldCell</string>
+			<key>label</key><string>浅色背景</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>lightColor</string>
+			<key>default</key><string>#F2F2F2</string>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+
+		<!-- ===== 候选栏 ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>候选栏</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>启用候选栏配色</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>enableCandidateColor</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTextFieldCell</string>
+			<key>label</key><string>候选文字/高亮色</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>candidateColor</string>
+			<key>default</key><string>#FFFFFF</string>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>启用候选栏渐变背景</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>enableCandidateGradientColor</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTextFieldCell</string>
+			<key>label</key><string>候选栏背景色</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>candidateGradientColor</string>
+			<key>default</key><string>#FFFFFF</string>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>隐藏候选栏分隔线</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>hideSeparatorLine</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+
+		<!-- ===== 圆角 ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>圆角</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>键帽圆角</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>enableCornerRadius</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSliderCell</string>
+			<key>label</key><string>键帽圆角半径</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>cornerRadius</string>
+			<key>min</key><real>0</real>
+			<key>max</key><real>20</real>
+			<key>default</key><real>8</real>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>整块键盘圆角</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>enableSystemKeyboardCorner</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSliderCell</string>
+			<key>label</key><string>整块键盘圆角半径</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>systemKeyboardCornerRadius</string>
+			<key>min</key><real>0</real>
+			<key>max</key><real>30</real>
+			<key>default</key><real>12</real>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+
+		<!-- ===== 中/英键 ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>中/英切换</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>隐藏中/英键（微信安全键盘）</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>hideChineseEnglish</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+
+		<!-- ===== 键帽边框 ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>键帽边框</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>启用键帽边框</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>enableKeyBorder</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTextFieldCell</string>
+			<key>label</key><string>边框深色</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>keyBorderDarkColor</string>
+			<key>default</key><string>#000000</string>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTextFieldCell</string>
+			<key>label</key><string>边框浅色</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>keyBorderLightColor</string>
+			<key>default</key><string>#000000</string>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSliderCell</string>
+			<key>label</key><string>边框不透明度</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>keyBorderOpacity</string>
+			<key>min</key><real>0</real>
+			<key>max</key><real>1</real>
+			<key>default</key><real>1</real>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSliderCell</string>
+			<key>label</key><string>边框宽度</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>keyBorderWidth</string>
+			<key>min</key><real>0</real>
+			<key>max</key><real>3</real>
+			<key>default</key><real>1</real>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+
+		<!-- ===== 键帽阴影 ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>键帽阴影</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>启用键帽阴影</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>enableKeyShadow</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSliderCell</string>
+			<key>label</key><string>阴影不透明度</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>keyShadowOpacity</string>
+			<key>min</key><real>0</real>
+			<key>max</key><real>1</real>
+			<key>default</key><real>0.3</real>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSliderCell</string>
+			<key>label</key><string>阴影偏移 X</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>keyShadowOffsetX</string>
+			<key>min</key><real>-5</real>
+			<key>max</key><real>5</real>
+			<key>default</key><real>0</real>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSliderCell</string>
+			<key>label</key><string>阴影偏移 Y</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>keyShadowOffsetY</string>
+			<key>min</key><real>-5</real>
+			<key>max</key><real>5</real>
+			<key>default</key><real>1</real>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSliderCell</string>
+			<key>label</key><string>阴影模糊半径</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>keyShadowRadius</string>
+			<key>min</key><real>0</real>
+			<key>max</key><real>10</real>
+			<key>default</key><real>2</real>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+
+		<!-- ===== 系统键盘背景 ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>系统键盘背景</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>隐藏系统键盘背景</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>hideSystemKeyBackground</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+
+		<!-- ===== 微信功能栏 ===== -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>微信键盘功能栏</string>
+			<key>footerText</key><string>在微信键盘顶部显示快捷按钮栏（换行 / 粘贴 / 清空 / 常用短语）。</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>启用微信功能栏</string>
+			<key>defaults</key><string>com.merged.keyboard</string>
+			<key>key</key><string>toolbarEnabled</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+	</array>
+</dict>
+</plist>
