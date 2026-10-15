@@ -291,7 +291,7 @@
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
 			<key>label</key><string>诊断</string>
-			<key>footerText</key><string>打开后，启动微信 3 秒会弹出一个对话框，显示插件实际读到的设置值和能否找到微信的键盘类。把那张弹窗内容发给我，就能定位问题。看完记得关掉。</string>
+			<key>footerText</key><string>打开后：① 键盘会被强制染成半透明红（用来确认插件到底有没有注入到微信输入法进程）；② 微信/微信输入法启动 3 秒会弹一个对话框，显示插件实际读到的设置值和能否找到键盘类。看完记得关掉本开关。</string>
 		</dict>
 		<dict>
 			<key>cell</key><string>PSSwitchCell</string>

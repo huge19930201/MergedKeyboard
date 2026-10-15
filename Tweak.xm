@@ -26,6 +26,9 @@
 @interface UIKBRenderGeometry : NSObject @end
 @interface UIKeyboardCandidateViewStyle : NSObject @end
 @interface WBMainInputView : UIView @end
+// 微信输入法自己的工具栏类（原版 WXKBToolbar 就是 hook 这两个）
+@interface WBTopBar : UIView @end
+@interface WBFunctionToolBar : UIView @end
 @interface WBKeyView : UIView @end
 @interface WBSecKeyboardKeyView : UIView @end
 @interface WBKeyViewItem : NSObject @end
@@ -70,7 +73,10 @@ static void MKShowDebugIfNeeded(void) {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 		if (![e debugEnabled]) return;
 		NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
-		if (![bid isEqualToString:@"com.tencent.xin"]) return;
+		BOOL isWeChat  = [bid isEqualToString:@"com.tencent.xin"];
+		BOOL isWetypeKB = [bid isEqualToString:@"com.tencent.wetype.keyboard"] ||
+		                  [bid hasPrefix:@"com.tencent.wetype"];
+		if (!isWeChat && !isWetypeKB) return;
 
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
 		               dispatch_get_main_queue(), ^{
@@ -116,6 +122,9 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 - (void)layoutSubviews {
 	%orig;
 	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+	if ([e debugEnabled]) {
+		self.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
+	}
 	if (![e isEnabled]) return;
 	if (![e hideSystemKeyBackground]) {
 		self.backgroundColor = [e keyboardBackgroundColorForView:self];
@@ -264,11 +273,44 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 - (void)layoutSubviews {
 	%orig;
 	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+
+	// 诊断模式：无论开关如何都把键盘染成半透明红，用来确认插件是否真的注入生效
+	if ([e debugEnabled]) {
+		self.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
+	}
+
 	if (![e isEnabled]) return;
 	if (![e hideSystemKeyBackground]) {
 		self.backgroundColor = [e keyboardBackgroundColorForView:self];
 	}
 	MKApplyKeyDecoration(self);
+
+	// 微信输入法：功能栏直接挂到主输入视图顶部
+	@try {
+		if ([e toolbarEnabled] && [[MergedKBToolbar shared] shouldShowInCurrentApp]) {
+			[[MergedKBToolbar shared] attachToDock:self];
+		}
+	} @catch (NSException *exception) { }
+}
+%end
+
+%hook WBTopBar
+- (void)layoutSubviews {
+	%orig;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if ([e debugEnabled]) self.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
+	} @catch (NSException *exception) { }
+}
+%end
+
+%hook WBFunctionToolBar
+- (void)layoutSubviews {
+	%orig;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if ([e debugEnabled]) self.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
+	} @catch (NSException *exception) { }
 }
 %end
 

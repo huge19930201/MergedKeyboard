@@ -7,8 +7,26 @@
 
 #import "MergedKBToolbar.h"
 
-// 微信主 Bundle ID（如需扩展到其它 App，在此处修改判定即可）
-static NSString *const kWXBundleID = @"com.tencent.xin";
+/*
+ * 目标进程判定（1.0.5 修正）：
+ *  - com.tencent.xin              微信 App（自带安全键盘）
+ *  - com.tencent.wetype.keyboard  微信输入法的键盘扩展（原版 WXKBToolbar 就是注入它）
+ *  - wxkb_plugin                  该扩展的可执行文件名（兜底）
+ * 之前只判 com.tencent.xin，所以在微信输入法里完全不生效。
+ */
+static BOOL MKIsTargetProcess(void) {
+	NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
+	if (bid.length) {
+		if ([bid isEqualToString:@"com.tencent.xin"]) return YES;
+		if ([bid isEqualToString:@"com.tencent.wetype.keyboard"]) return YES;
+		if ([bid hasPrefix:@"com.tencent.wetype"]) return YES;
+	}
+	@try {
+		NSString *exe = [[[[NSProcessInfo processInfo] arguments] firstObject] lastPathComponent];
+		if ([exe isEqualToString:@"wxkb_plugin"]) return YES;
+	} @catch (NSException *e) { }
+	return NO;
+}
 
 // 功能栏固定高度
 static const CGFloat kBarHeight = 38.0;
@@ -50,9 +68,7 @@ static __weak id mk_fr = nil;
 #pragma mark - 显示判定
 
 - (BOOL)shouldShowInCurrentApp {
-	NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
-	if (bid.length == 0) return NO;
-	return [bid isEqualToString:kWXBundleID];
+	return MKIsTargetProcess();
 }
 
 #pragma mark - 挂载 / 卸载
@@ -178,7 +194,37 @@ static __weak id mk_fr = nil;
 	return [UIResponder mk_currentFirstResponder];
 }
 
+/*
+ * 键盘扩展里拿不到宿主 App 的 UITextField，insertText: 无效，
+ * 必须走 UIInputViewController 的 textDocumentProxy。
+ * 从挂载的视图沿 nextResponder 往上找 UIInputViewController。
+ */
+- (id)_textDocumentProxy {
+	UIResponder *r = self.currentDock;
+	while (r) {
+		if ([r isKindOfClass:[UIInputViewController class]]) {
+			@try { return [(UIInputViewController *)r textDocumentProxy]; }
+			@catch (NSException *e) { return nil; }
+		}
+		r = [r nextResponder];
+	}
+	// 兜底：从 keyWindow 的 rootViewController 往下找
+	@try {
+		UIViewController *root = [UIApplication sharedApplication].keyWindow.rootViewController;
+		if ([root isKindOfClass:[UIInputViewController class]]) {
+			return [(UIInputViewController *)root textDocumentProxy];
+		}
+	} @catch (NSException *e) { }
+	return nil;
+}
+
 - (void)_insertText:(NSString *)text {
+	if (text.length == 0) return;
+	id proxy = [self _textDocumentProxy];
+	if (proxy && [proxy respondsToSelector:@selector(insertText:)]) {
+		[proxy insertText:text];
+		return;
+	}
 	id input = [self _currentTextInput];
 	if ([input respondsToSelector:@selector(insertText:)]) {
 		[input insertText:text];
@@ -186,6 +232,22 @@ static __weak id mk_fr = nil;
 }
 
 - (void)_clearText {
+	id proxy = [self _textDocumentProxy];
+	if (proxy && [proxy respondsToSelector:@selector(documentContextBeforeInput)] &&
+		[proxy respondsToSelector:@selector(deleteBackward)]) {
+		NSString *before = [proxy documentContextBeforeInput] ?: @"";
+		NSUInteger n = MIN(before.length, (NSUInteger)300);
+		for (NSUInteger i = 0; i < n; i++) [proxy deleteBackward];
+		NSString *after = [proxy documentContextAfterInput] ?: @"";
+		NSUInteger m = MIN(after.length, (NSUInteger)300);
+		for (NSUInteger i = 0; i < m; i++) {
+			if ([proxy respondsToSelector:@selector(adjustTextPositionByCharacterOffset:)]) {
+				[proxy adjustTextPositionByCharacterOffset:1];
+			}
+		}
+		for (NSUInteger i = 0; i < m; i++) [proxy deleteBackward];
+		return;
+	}
 	id input = [self _currentTextInput];
 	if ([input respondsToSelector:@selector(selectAll:)] &&
 		[input respondsToSelector:@selector(replaceRange:withText:)]) {

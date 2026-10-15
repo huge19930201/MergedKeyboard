@@ -307,8 +307,8 @@ BOOL MKViewIsDarkMode(UIView *view) {
 	if (!cls) {
 		cls = @[@"UIKeyboardDockView", @"UIInputView", @"UIKBKeyView", @"UIKBBackdropView",
 		        @"UIKBKeyBackgroundView", @"UIKeyboardCandidateViewStyle",
-		        @"WBMainInputView", @"WBKeyView", @"WBSecKeyboardKeyView",
-		        @"WBKeyViewItem", @"WBConfigManager"];
+		        @"WBMainInputView", @"WBTopBar", @"WBFunctionToolBar", @"WBKeyView",
+		        @"WBSecKeyboardKeyView", @"WBKeyViewItem", @"WBConfigManager"];
 	}
 	for (NSString *c in cls) {
 		[s appendFormat:@"%@: %@\n", c, NSClassFromString(c) ? @"有 ✅" : @"无"];
