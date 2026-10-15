@@ -269,6 +269,44 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 
 #pragma mark - 微信私有类 Hook（仅在微信内生效，类不存在时 Logos 自动跳过）
 
+/*
+ * 1.0.6 决定性诊断：UIInputViewController 是键盘扩展的根控制器，
+ * 只要插件被注入到键盘扩展进程，这个 hook 一定命中 —— 不依赖任何 WB*/UIKB* 类名。
+ * 命中后把整个键盘染成半透明红，并弹出诊断信息。
+ */
+static BOOL MKDebugAlertShown = NO;
+
+%hook UIInputViewController
+- (void)viewDidAppear:(BOOL)animated {
+	%orig;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if (![e debugEnabled]) return;
+
+		// 染红 = 「插件确实注入到这个键盘进程了」的铁证
+		if (self.view) {
+			self.view.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
+		}
+
+		NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
+		BOOL isWetype = [bid hasPrefix:@"com.tencent.wetype"];
+		BOOL isWeChat = [bid isEqualToString:@"com.tencent.xin"];
+		if (!isWetype && !isWeChat) return;
+		if (MKDebugAlertShown) return;
+
+		UIAlertController *ac = [UIAlertController
+			alertControllerWithTitle:@"MergedKeyboard 诊断 (已注入 ✅)"
+			                 message:[e debugSummary]
+			          preferredStyle:UIAlertControllerStyleAlert];
+		[ac addAction:[UIAlertAction actionWithTitle:@"好"
+		                                       style:UIAlertActionStyleDefault
+		                                     handler:nil]];
+		[self presentViewController:ac animated:YES completion:nil];
+		MKDebugAlertShown = YES;
+	} @catch (NSException *exception) { }
+}
+%end
+
 %hook WBMainInputView
 - (void)layoutSubviews {
 	%orig;

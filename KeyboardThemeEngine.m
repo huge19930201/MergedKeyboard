@@ -196,7 +196,9 @@ BOOL MKViewIsDarkMode(UIView *view) {
 	_prefsSource = fb ? @"兜底(NSUserDefaults/文件)" : @"CFPreferences";
 
 	_enabled                      = MKBool(@"enabled", NO, fb);
-	_debugEnabled                 = MKBool(@"debug", NO, fb);
+	// 1.0.6 诊断构建：无条件开启，这样即使偏好完全读不到，也能靠"键盘变红"
+	// 区分「没注入」和「注入了但读不到设置」。1.0.7 会恢复由设置开关控制。
+	_debugEnabled                 = YES;
 
 	_darkColorHex                 = MKStr(@"darkColor", @"#202020", fb);
 	_lightColorHex                = MKStr(@"lightColor", @"#F2F2F2", fb);

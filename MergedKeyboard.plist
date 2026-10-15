@@ -3,19 +3,15 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  注入范围：
-	   1) com.apple.UIKit               所有用 UIKit 的进程（系统键盘主题用）
-	   2) com.tencent.wetype.keyboard   ★微信输入法的键盘扩展（原版 WXKBToolbar 就是注入它）
-	                                    键盘跑在独立的 appex 进程里，bundle id 跟微信 App 完全不同
-	   3) wxkb_plugin                   该扩展的可执行文件名（兜底，Mode=Any）
+	  1.0.6 决定性实验版：
+	  过滤器与「已验证可用」的原版 WXKBToolbar 完全一致（Bundles + Executables，不写 Mode）。
+	  只注入微信输入法的键盘扩展，用来确认注入链路是否打通。
+	  注入确认后，1.0.7 再把 com.apple.UIKit 等范围加回来。
 	-->
 	<key>Filter</key>
 	<dict>
-		<key>Mode</key>
-		<string>Any</string>
 		<key>Bundles</key>
 		<array>
-			<string>com.apple.UIKit</string>
 			<string>com.tencent.wetype.keyboard</string>
 		</array>
 		<key>Executables</key>
