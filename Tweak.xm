@@ -34,25 +34,31 @@
 
 #pragma mark - 通用工具：键帽边框 / 阴影
 
+// 所有改界面的操作都加异常保护：任何意外都不允许影响宿主 App / SpringBoard
 static void MKApplyKeyDecoration(UIView *v) {
-	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-	CALayer *layer = v.layer;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		CALayer *layer = v.layer;
+		if (!layer) return;
 
-	if ([e enableCornerRadius]) {
-		layer.cornerRadius = [e cornerRadius];
-		layer.masksToBounds = YES;
-	}
-	if ([e enableKeyBorder]) {
-		layer.borderWidth = [e keyBorderWidth];
-		UIColor *c = [[e keyBorderColorForView:v] colorWithAlphaComponent:[e keyBorderOpacity]];
-		layer.borderColor = c.CGColor;
-	}
-	if ([e enableKeyShadow]) {
-		layer.shadowOpacity = (float)[e keyShadowOpacity];
-		layer.shadowOffset = CGSizeMake([e keyShadowOffsetX], [e keyShadowOffsetY]);
-		layer.shadowRadius = [e keyShadowRadius];
-		layer.shadowColor = [UIColor blackColor].CGColor;
-		layer.masksToBounds = NO;
+		if ([e enableCornerRadius]) {
+			layer.cornerRadius = [e cornerRadius];
+			layer.masksToBounds = YES;
+		}
+		if ([e enableKeyBorder]) {
+			layer.borderWidth = [e keyBorderWidth];
+			UIColor *c = [[e keyBorderColorForView:v] colorWithAlphaComponent:[e keyBorderOpacity]];
+			layer.borderColor = c.CGColor;
+		}
+		if ([e enableKeyShadow]) {
+			layer.shadowOpacity = (float)[e keyShadowOpacity];
+			layer.shadowOffset = CGSizeMake([e keyShadowOffsetX], [e keyShadowOffsetY]);
+			layer.shadowRadius = [e keyShadowRadius];
+			layer.shadowColor = [UIColor blackColor].CGColor;
+			layer.masksToBounds = NO;
+		}
+	} @catch (NSException *exception) {
+		// 静默忽略，保证稳定性优先
 	}
 }
 
@@ -79,9 +85,12 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 		self.layer.cornerRadius = [e systemKeyboardCornerRadius];
 		self.layer.masksToBounds = YES;
 	}
-	// 同时挂载微信功能栏
-	if ([[MergedKBToolbar shared] shouldShowInCurrentApp] && [e toolbarEnabled]) {
-		[[MergedKBToolbar shared] attachToDock:self];
+	// 同时挂载微信功能栏（加异常保护）
+	@try {
+		if ([[MergedKBToolbar shared] shouldShowInCurrentApp] && [e toolbarEnabled]) {
+			[[MergedKBToolbar shared] attachToDock:self];
+		}
+	} @catch (NSException *exception) {
 	}
 }
 %end
@@ -280,6 +289,26 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 
 %ctor {
 	@autoreleasepool {
+		// ===== 进程白/黑名单：绝不能在 SpringBoard 等系统进程里启用 =====
+		// SpringBoard 开机/锁屏时会创建密码键盘（同样是键盘类），
+		// 一旦在这里改动界面就可能把 SpringBoard 搞崩，导致无限重启黑屏。
+		NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
+		if (bid.length == 0) return;
+
+		static NSSet *blacklist;
+		static dispatch_once_t onceToken;
+		dispatch_once(&onceToken, ^{
+			blacklist = [NSSet setWithObjects:
+				@"com.apple.springboard",   // 桌面（最危险）
+				@"com.apple.Preferences",   // 设置 App
+				@"com.apple.backboardd",
+				@"com.apple.mediaserverd",
+				@"com.apple.WebKit.WebContent",
+				@"com.apple.WebKit.Networking",
+				nil];
+		});
+		if ([blacklist containsObject:bid]) return;
+
 		// 初始化偏好
 		[[KeyboardThemeEngine shared] reloadPrefs];
 
