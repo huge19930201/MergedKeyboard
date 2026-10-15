@@ -16,8 +16,8 @@
 #import "MergedKBToolbar.h"
 
 #pragma mark - 私有类前向声明（运行时通过 %hook 解析，无需头文件）
+// 注意：UIInputView 是 UIKit 公开类（UIInputView.h 已定义），不能再重复声明
 @interface UIKeyboardDockView : UIView @end
-@interface UIInputView : UIView @end
 @interface UIKBVisualEffectView : UIView @end
 @interface UIKBBackdropView : UIView @end
 @interface UIKBKeyBackgroundView : UIView @end
@@ -178,24 +178,24 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 %hook UIKeyboardCandidateViewStyle
 - (UIColor *)arrowButtonBackgroundColor {
 	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-	if ([e isEnabled] && [e enableCandidateColor]) return [e candidateTextColorForView:self];
+	if ([e isEnabled] && [e enableCandidateColor]) return [e candidateTextColorForView:nil];
 	return %orig;
 }
 - (UIColor *)gridBackgroundColor {
 	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 	if ([e isEnabled] && ([e enableCandidateColor] || [e enableCandidateGradientColor])) {
-		return [e candidateGradientColorForView:self];
+		return [e candidateGradientColorForView:nil];
 	}
 	return %orig;
 }
 - (UIColor *)highlightedBackgroundColor {
 	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-	if ([e isEnabled] && [e enableCandidateColor]) return [e candidateTextColorForView:self];
+	if ([e isEnabled] && [e enableCandidateColor]) return [e candidateTextColorForView:nil];
 	return %orig;
 }
 - (UIColor *)highlightedTextColor {
 	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-	if ([e isEnabled] && [e enableCandidateColor]) return [e candidateTextColorForView:self];
+	if ([e isEnabled] && [e enableCandidateColor]) return [e candidateTextColorForView:nil];
 	return %orig;
 }
 - (UIColor *)lineColor {
