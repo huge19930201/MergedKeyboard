@@ -1,69 +1,115 @@
 name: Build MergedKeyboard (arm64e)
 
-# 推送或在 GitHub 网页手动触发即可自动编译出 arm64e/arm64 的 .deb
-# 同时产出两种越狱方案：
-#   - rootless : Dopamine / XinaA15 / palera1n(rootless) 等（/var/jb）  -> 官方 theos
-#   - roothide : Dopamine RootHide 版（.jbroot）                        -> roothide/theos
+# ⚠️ 重要：只用 macos job 的产物。
+# Linux(ubuntu) 上的 Theos 用的是 Swift 开源工具链，编出来的 arm64e 切片
+# **不带 Apple 的 arm64e ABI note / PAC 不规范**（链接时会报
+# "built with an incompatible arm64e ABI compiler"），注入 SpringBoard 会在
+# 执行第一条 objc 消息时因 PAC 校验失败直接崩溃 -> 黑屏。
+# macOS + Xcode 的 clang/ld 才能生成合法的 arm64e。
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  build:
-    # theos-action 需要 macOS 或 Linux runner（不支持 Windows）
-    runs-on: ubuntu-latest
-
+  # ============================ 主推：macOS（合法 arm64e） ============================
+  macos:
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
         scheme: [ rootless, roothide ]
-
-    name: Build (${{ matrix.scheme }})
+    name: macOS (${{ matrix.scheme }})
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Theos (toolchain + iOS SDK)
+      - name: Setup Theos (macOS + Xcode)
         uses: Randomblock1/theos-action@v1
         with:
-          # 默认从 theos/sdks 拉取最新 iPhoneOS SDK（当前 16.5）
           theos-sdks: 'https://github.com/theos/sdks'
 
-      # RootHide 的打包 scheme 只存在于 roothide/theos 里，官方 theos 没有
+      # RootHide 的打包 scheme 只存在于 roothide/theos（官方 theos 只有 rootless）
       - name: Swap in roothide/theos (roothide only)
         if: matrix.scheme == 'roothide'
         run: |
           set -e
-          echo "原 THEOS=$THEOS"
           mv "$THEOS" /tmp/theos-official
           git clone --recursive https://github.com/roothide/theos.git "$THEOS"
           mkdir -p "$THEOS/sdks" "$THEOS/toolchain"
           cp -a /tmp/theos-official/sdks/. "$THEOS/sdks/" 2>/dev/null || true
           cp -a /tmp/theos-official/toolchain/. "$THEOS/toolchain/" 2>/dev/null || true
-          echo "--- sdks ---"; ls "$THEOS/sdks"
-          echo "--- 可用 scheme ---"; ls "$THEOS/vendor/mod"
-          echo "--- roothide scheme 内容 ---"; ls "$THEOS/vendor/mod/roothide"
+          ls "$THEOS/vendor/mod"
 
-      - name: Build package (${{ matrix.scheme }})
+      - name: Build (${{ matrix.scheme }})
         run: |
           make clean
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=${{ matrix.scheme }}
-          mkdir -p out
-          cp packages/*.deb out/ || true
+          mkdir -p out && cp packages/*.deb out/ || true
           ls -la out/
 
-      - name: Upload .deb artifact (${{ matrix.scheme }})
+      # 自检：arm64e 切片必须带 arm64e ABI note，否则装了会黑屏
+      - name: Verify arm64e ABI
+        run: |
+          DYLIB=$(find .theos -name 'MergedKeyboard.dylib' | head -1)
+          echo "dylib: $DYLIB"
+          vtool -show-build "$DYLIB" 2>/dev/null | head -40 || true
+          echo "--- LC_NOTE / arm64e ---"
+          otool -l "$DYLIB" 2>/dev/null | grep -A4 -i "LC_NOTE\|arm64e\|minos\|platform" | head -60 || true
+          echo "--- 架构 ---"
+          lipo -info "$DYLIB" || true
+
+      - name: Upload (${{ matrix.scheme }})
         uses: actions/upload-artifact@v4
         with:
-          name: MergedKeyboard-arm64e-${{ matrix.scheme }}
+          name: MergedKeyboard-macos-${{ matrix.scheme }}
           path: out/*.deb
           if-no-files-found: error
 
-      # （可选）打 tag 时自动发布到 Release
       - name: Release on tag (${{ matrix.scheme }})
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: out/*.deb
+
+  # ============================ 对照：Linux（ABI 可能不合规，仅供参考） ============================
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [ rootless, roothide ]
+    name: Linux (${{ matrix.scheme }}) - 仅对照
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: 'https://github.com/theos/sdks'
+
+      - name: Swap in roothide/theos (roothide only)
+        if: matrix.scheme == 'roothide'
+        run: |
+          set -e
+          mv "$THEOS" /tmp/theos-official
+          git clone --recursive https://github.com/roothide/theos.git "$THEOS"
+          mkdir -p "$THEOS/sdks" "$THEOS/toolchain"
+          cp -a /tmp/theos-official/sdks/. "$THEOS/sdks/" 2>/dev/null || true
+          cp -a /tmp/theos-official/toolchain/. "$THEOS/toolchain/" 2>/dev/null || true
+
+      - name: Build (${{ matrix.scheme }})
+        run: |
+          make clean
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=${{ matrix.scheme }}
+          mkdir -p out && cp packages/*.deb out/ || true
+
+      - name: Upload (${{ matrix.scheme }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: MergedKeyboard-linux-${{ matrix.scheme }}
+          path: out/*.deb
+          if-no-files-found: error
