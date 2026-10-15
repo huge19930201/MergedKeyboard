@@ -519,7 +519,42 @@ static void MKInsertDiagnosticText(void) {
 	} @catch (NSException *exception) { }
 }
 
+// 判断某个视图是否位于键盘视图树内部（含根视图本身）
+static BOOL MKIsInKeyboardTree(UIView *v) {
+	UIView *root = MKKeyboardRoot;
+	if (!root || !v) return NO;
+	if (v == root) return YES;
+	UIView *x = v;
+	int guard = 0;
+	while (x.superview && guard++ < 10) {
+		x = x.superview;
+		if (x == root) return YES;
+	}
+	return NO;
+}
+
 %hook UIView
+/*
+ * 1.2.0 —— 照原版 keyboardhook 的做法：hook setBackgroundColor:
+ * 原版 dylib 里就带着 setBackgroundColor 这个方法名，说明它是在「对方设置背景的瞬间」
+ * 把颜色替换掉的。我们之前一直是事后补色，每次都被微信下一帧改成原值，所以永远看不见。
+ */
+- (void)setBackgroundColor:(UIColor *)color {
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if ([e isEnabled] && ![e hideSystemKeyBackground] && MKIsInKeyboardTree(self)) {
+			CGFloat w = self.bounds.size.width;
+			// 只替换「面板」级别的背景（整行/整块），不去碰单个键帽，
+			// 否则键帽会被糊成一片分不出来。
+			if (w >= 150.0) {
+				%orig([e keyboardBackgroundColorForView:self]);
+				return;
+			}
+		}
+	} @catch (NSException *exception) { }
+	%orig;
+}
+
 /*
  * 1.1.3：光靠定时器还不够 —— 微信输入法在自己的 layout 里会重新设置 layer 属性，
  * 0.6 秒后再补也没用。这里直接在每次布局结束的瞬间补一次，紧跟对方后面执行。
