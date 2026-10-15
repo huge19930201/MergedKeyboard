@@ -31,10 +31,27 @@ jobs:
           # 默认从 theos/sdks 拉取最新 iPhoneOS SDK（当前 16.5）
           theos-sdks: 'https://github.com/theos/sdks'
 
-      - name: Show Theos version
+      # theos-action 自带的 theos 可能过旧，不支持 roothide scheme，这里强制更新到最新 master
+      - name: Update Theos to latest master
         run: |
-          echo "THEOS: $THEOS"
-          if [ -f "$THEOS/vendor/libroothide/libroothide.h" ]; then echo "roothide 支持: 有"; else echo "roothide 支持: 未找到 libroothide"; fi
+          set -e
+          echo "THEOS=$THEOS"
+          cp -r "$THEOS/sdks" /tmp/theos-sdks-backup 2>/dev/null || true
+          if [ -d "$THEOS/.git" ]; then
+            git -C "$THEOS" fetch --all --tags --prune || true
+            git -C "$THEOS" reset --hard origin/HEAD || git -C "$THEOS" reset --hard origin/master || true
+            git -C "$THEOS" submodule update --init --recursive || true
+          else
+            rm -rf "$THEOS"
+            git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          fi
+          mkdir -p "$THEOS/sdks"
+          cp -r /tmp/theos-sdks-backup/. "$THEOS/sdks/" 2>/dev/null || true
+          echo "--- SDK ---"; ls "$THEOS/sdks"
+          echo "--- version ---"; git -C "$THEOS" log -1 --oneline || true
+          echo "--- roothide 支持 ---"
+          if [ -f "$THEOS/vendor/libroothide/libroothide.h" ]; then echo "有 libroothide"; else echo "缺少 libroothide"; ls "$THEOS/vendor" || true; fi
+          grep -n "roothide" "$THEOS/makefiles/common.mk" | head -20 || true
 
       - name: Build package (${{ matrix.scheme }})
         run: |
