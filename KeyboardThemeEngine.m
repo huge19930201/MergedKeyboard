@@ -44,7 +44,7 @@ UIColor *MKColorFromHex(NSString *hex) {
  * 表现为「设置了但插件完全没反应、值永远是默认」。所以这里做三级兜底：
  *   1) CFPreferences（正常路径）
  *   2) NSUserDefaults -persistentDomainForName:
- *   3) 直接读 /var/mobile/Library/Preferences/*.plist 文件
+ *   3) 直接读 /var/mobile/Library/Preferences/ 下的 plist 文件
  */
 static NSDictionary *MKLoadPrefsFallback(void) {
 	@try {
