@@ -9,8 +9,6 @@
 		<key>label</key>
 		<string>MergedKeyboard</string>
 	</dict>
-	<key>title</key>
-	<string>MergedKeyboard 设置</string>
 	<key>items</key>
 	<array>
 		<dict>
@@ -197,7 +195,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<real>8</real>
+			<real>8.0</real>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
@@ -205,9 +203,9 @@
 			<key>label</key>
 			<string>键帽圆角半径</string>
 			<key>max</key>
-			<real>20</real>
+			<real>20.0</real>
 			<key>min</key>
-			<real>0</real>
+			<real>0.0</real>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -229,7 +227,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<real>12</real>
+			<real>12.0</real>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
@@ -237,9 +235,9 @@
 			<key>label</key>
 			<string>整块键盘圆角半径</string>
 			<key>max</key>
-			<real>30</real>
+			<real>30.0</real>
 			<key>min</key>
-			<real>0</real>
+			<real>0.0</real>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -327,7 +325,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<real>1</real>
+			<real>1.0</real>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
@@ -335,9 +333,9 @@
 			<key>label</key>
 			<string>边框不透明度</string>
 			<key>max</key>
-			<real>1</real>
+			<real>1.0</real>
 			<key>min</key>
-			<real>0</real>
+			<real>0.0</real>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -345,7 +343,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<real>1</real>
+			<real>1.0</real>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
@@ -353,9 +351,9 @@
 			<key>label</key>
 			<string>边框宽度</string>
 			<key>max</key>
-			<real>5</real>
+			<real>5.0</real>
 			<key>min</key>
-			<real>0</real>
+			<real>0.0</real>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -391,9 +389,9 @@
 			<key>label</key>
 			<string>阴影不透明度</string>
 			<key>max</key>
-			<real>1</real>
+			<real>1.0</real>
 			<key>min</key>
-			<real>0</real>
+			<real>0.0</real>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -401,7 +399,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<real>0</real>
+			<real>0.0</real>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
@@ -409,9 +407,9 @@
 			<key>label</key>
 			<string>阴影偏移 X</string>
 			<key>max</key>
-			<real>5</real>
+			<real>5.0</real>
 			<key>min</key>
-			<real>-5</real>
+			<real>-5.0</real>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -419,7 +417,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<real>1</real>
+			<real>1.0</real>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
@@ -427,9 +425,9 @@
 			<key>label</key>
 			<string>阴影偏移 Y</string>
 			<key>max</key>
-			<real>5</real>
+			<real>5.0</real>
 			<key>min</key>
-			<real>-5</real>
+			<real>-5.0</real>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -437,7 +435,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<real>3</real>
+			<real>3.0</real>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
@@ -445,9 +443,9 @@
 			<key>label</key>
 			<string>阴影模糊半径</string>
 			<key>max</key>
-			<real>10</real>
+			<real>10.0</real>
 			<key>min</key>
-			<real>0</real>
+			<real>0.0</real>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -505,13 +503,13 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>
-			<true/>
+			<false/>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
 			<string>debug</string>
 			<key>label</key>
-			<string>显示诊断（键盘会变红）</string>
+			<string>显示诊断弹窗</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -519,10 +517,12 @@
 			<key>footerAlignment</key>
 			<integer>1</integer>
 			<key>footerText</key>
-			<string>MergedKeyboard 1.0.7 — 合并版键盘增强，开源免费。改完颜色收回键盘再弹出即可。</string>
+			<string>MergedKeyboard 1.0.8 — 合并版键盘增强，开源免费。改完颜色收回键盘再弹出即可。</string>
 			<key>isStaticText</key>
 			<true/>
 		</dict>
 	</array>
+	<key>title</key>
+	<string>MergedKeyboard 设置</string>
 </dict>
 </plist>

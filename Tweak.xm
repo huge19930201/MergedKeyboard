@@ -66,48 +66,13 @@ static void MKApplyKeyDecoration(UIView *v) {
 	}
 }
 
-#pragma mark - 通用兜底：不依赖任何私有类名的递归上色
-
 /*
- * 微信输入法内部用的 WB* / UIKB* 类名随时可能随版本变化，
- * 一旦类名对不上，所有 %hook 都不会命中，表现就是「注入了但完全没变化」。
- * 这里提供一条完全不依赖类名的兜底路径：从键盘根视图开始递归，
- * 把所有「背景不透明」的视图换成用户配置的颜色，并按需套圆角/边框/阴影。
+ * 1.0.8 已删除上一版的「递归兜底上色」：它把圆角 + masksToBounds 套到了
+ * 键盘所有带背景的容器上，直接把微信输入法的键盘布局裁坏了（用户实测键盘错乱）。
+ * 教训：对未知视图树做无差别 layer 改动非常危险，上色必须限定在明确命中的类里。
  */
-static void MKApplyThemeRecursive(UIView *v, int depth) {
-	if (!v || depth > 6) return;
-	@try {
-		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-		UIColor *cur = v.backgroundColor;
-		if (cur) {
-			CGFloat a = CGColorGetAlpha(cur.CGColor);
-			if (a > 0.05) {
-				v.backgroundColor = [e keyboardBackgroundColorForView:v];
-				MKApplyKeyDecoration(v);
-			}
-		}
-		for (UIView *sub in v.subviews) {
-			MKApplyThemeRecursive(sub, depth + 1);
-		}
-	} @catch (NSException *exception) { }
-}
 
-static CFTimeInterval MKLastRootThemeApply = -1.0;
-
-static void MKApplyThemeToKeyboardRoot(UIView *root) {
-	if (!root) return;
-	@try {
-		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-		if (![e isEnabled]) return;
-		// 键盘每次布局都会回调，做一次节流，避免滚动/输入时卡顿
-		CFTimeInterval now = CACurrentMediaTime();
-		if (MKLastRootThemeApply > 0 && now - MKLastRootThemeApply < 0.35) return;
-		MKLastRootThemeApply = now;
-		MKApplyThemeRecursive(root, 0);
-	} @catch (NSException *exception) { }
-}
-
-#pragma mark - 诊断弹窗（1.0.4：用来定位「设置了但不生效」）
+#pragma mark - 诊断弹窗
 
 // 诊断弹窗只弹一次；设置被改动后重置，方便反复排查
 static BOOL MKDebugAlertShown = NO;
@@ -162,9 +127,8 @@ static void MKShowDebugIfNeeded(void) {
 static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 						  CFStringRef name, const void *object, CFDictionaryRef info) {
 	[[KeyboardThemeEngine shared] reloadPrefs];
-	// 设置改了就允许诊断弹窗再弹一次，并且立刻重新上色（不用等节流窗口）
+	// 设置改了就允许诊断弹窗再弹一次
 	MKDebugAlertShown = NO;
-	MKLastRootThemeApply = -1.0;
 }
 
 #pragma mark - 键盘主题 Hook 组
@@ -175,9 +139,6 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 - (void)layoutSubviews {
 	%orig;
 	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-	if ([e debugEnabled]) {
-		self.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
-	}
 	if (![e isEnabled]) return;
 	if (![e hideSystemKeyBackground]) {
 		self.backgroundColor = [e keyboardBackgroundColorForView:self];
@@ -332,16 +293,7 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 	%orig;
 	@try {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-
-		// 兜底上色：不管微信输入法内部是 WB* 还是别的类名，这条路径一定生效
-		MKApplyThemeToKeyboardRoot(self.view);
-
 		if (![e debugEnabled]) return;
-
-		// 染红 = 「插件确实注入到这个键盘进程了」的铁证
-		if (self.view) {
-			self.view.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
-		}
 
 		NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
 		BOOL isWetype = [bid hasPrefix:@"com.tencent.wetype"];
@@ -349,6 +301,7 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 		if (!isWetype && !isWeChat) return;
 		if (MKDebugAlertShown) return;
 
+		// 1.0.8：诊断不再染红键盘（上一版的红色会盖住主题色），只弹信息框
 		UIAlertController *ac = [UIAlertController
 			alertControllerWithTitle:@"MergedKeyboard 诊断 (已注入 ✅)"
 			                 message:[e debugSummary]
@@ -365,33 +318,20 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 		MKDebugAlertShown = YES;
 	} @catch (NSException *exception) { }
 }
-
-- (void)viewDidLayoutSubviews {
-	%orig;
-	@try {
-		MKApplyThemeToKeyboardRoot(self.view);
-	} @catch (NSException *exception) { }
-}
 %end
 
 %hook WBMainInputView
 - (void)layoutSubviews {
 	%orig;
-	KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-
-	// 诊断模式：无论开关如何都把键盘染成半透明红，用来确认插件是否真的注入生效
-	if ([e debugEnabled]) {
-		self.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
-	}
-
-	if (![e isEnabled]) return;
-	if (![e hideSystemKeyBackground]) {
-		self.backgroundColor = [e keyboardBackgroundColorForView:self];
-	}
-	MKApplyKeyDecoration(self);
-
-	// 微信输入法：功能栏直接挂到主输入视图顶部
 	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if (![e isEnabled]) return;
+		if (![e hideSystemKeyBackground]) {
+			self.backgroundColor = [e keyboardBackgroundColorForView:self];
+		}
+		MKApplyKeyDecoration(self);
+
+		// 微信输入法：功能栏直接挂到主输入视图顶部
 		if ([e toolbarEnabled] && [[MergedKBToolbar shared] shouldShowInCurrentApp]) {
 			[[MergedKBToolbar shared] attachToDock:self];
 		}
@@ -404,7 +344,10 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 	%orig;
 	@try {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-		if ([e debugEnabled]) self.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
+		if (![e isEnabled]) return;
+		if (![e hideSystemKeyBackground]) {
+			self.backgroundColor = [e keyboardBackgroundColorForView:self];
+		}
 	} @catch (NSException *exception) { }
 }
 %end
@@ -414,7 +357,10 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 	%orig;
 	@try {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-		if ([e debugEnabled]) self.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.45];
+		if (![e isEnabled]) return;
+		if (![e hideSystemKeyBackground]) {
+			self.backgroundColor = [e keyboardBackgroundColorForView:self];
+		}
 	} @catch (NSException *exception) { }
 }
 %end

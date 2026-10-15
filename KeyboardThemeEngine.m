@@ -198,7 +198,7 @@ BOOL MKViewIsDarkMode(UIView *view) {
 	// 默认开启（与原版一致）：装上去就能看到效果，用户可自行关闭
 	_enabled                      = MKBool(@"enabled", YES, fb);
 	// 诊断默认开启，确认生效后用户在设置里关掉即可
-	_debugEnabled                 = MKBool(@"debug", YES, fb);
+	_debugEnabled                 = MKBool(@"debug", NO, fb);
 
 	_darkColorHex                 = MKStr(@"darkColor", @"#202020", fb);
 	_lightColorHex                = MKStr(@"lightColor", @"#F2F2F2", fb);
