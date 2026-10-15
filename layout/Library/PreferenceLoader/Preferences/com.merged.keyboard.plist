@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- entry 是必需的：PreferenceLoader 源码里 `if(!entry) continue;`，
+	     没有这个键，整个文件会被直接跳过，设置里根本不会出现这一项。 -->
+	<key>entry</key>
+	<dict>
+		<key>cell</key>
+		<string>PSLinkCell</string>
+		<key>label</key>
+		<string>MergedKeyboard</string>
+	</dict>
 	<key>title</key>
 	<string>MergedKeyboard 设置</string>
 	<key>items</key>

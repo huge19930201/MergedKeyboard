@@ -31,6 +31,15 @@
 
 所有开关在 **设置 → MergedKeyboard** 中配置，保存即通过 Darwin 通知 `com.merged.keyboard/ReloadPrefs` 实时生效（无需重启 App）。
 
+> ⚠️ **PreferenceLoader 的 plist 必须有 `entry` 键**，否则设置里根本不会出现这一项。
+> PreferenceLoader 源码（`Tweak.xm`）里是这么写的：
+> ```objc
+> NSDictionary *entry = [plPlist objectForKey:@"entry"];
+> if(!entry) continue;   // 没有 entry 就整个跳过
+> ```
+> `entry` 是显示在设置根列表里的那个 cell，`title` + `items` 是点进去后的页面内容，
+> 三者缺一不可。1.0.3 之前漏了 `entry`，所以设置页从来没出现过。
+
 ---
 
 ## 文件结构
