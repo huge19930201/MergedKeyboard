@@ -332,22 +332,25 @@ static void MKDumpViewTree(UIView *v, int depth, NSMutableString *s, int *budget
 	for (UIView *c in v.subviews) MKDumpViewTree(c, depth + 1, s, budget);
 }
 
-// 键帽启发式：只改「叶子 + 背景不透明 + 键盘按键尺寸范围」的小视图，绝不动大容器
+// 判断一个视图是否可能是「键帽」（按尺寸区间，不再要求背景不透明）
+static BOOL MKLooksLikeKeycap(UIView *v) {
+	CGFloat w = v.bounds.size.width, h = v.bounds.size.height;
+	if (w <= 0 || h <= 0) return NO;
+	if (w < 14 || h < 14) return NO;
+	if (w > 240 || h > 96) return NO;
+	if (v.subviews.count > 2) return NO;
+	if (v.tag == 99001) return NO;              // 我们自己的诊断标签
+	if ([v isKindOfClass:[UIScrollView class]]) return NO; // 别碰功能栏
+	return YES;
+}
+
+// 键帽启发式：深度遍历，符合尺寸的就套装饰，绝不动大容器
 static void MKApplyKeycapHeuristic(UIView *v, int depth) {
 	if (!v || depth > 6) return;
 	@try {
-		// 跳过我们自己加的东西（诊断标签）
-		if (v.tag == 99001) return;
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 		BOOL wantDeco = [e enableCornerRadius] || [e enableKeyBorder] || [e enableKeyShadow];
-		if (wantDeco && v.subviews.count <= 2 && v.backgroundColor) {
-			CGFloat h = v.bounds.size.height, w = v.bounds.size.width;
-			CGFloat a = CGColorGetAlpha(v.backgroundColor.CGColor);
-			// 放宽到常见键帽尺寸区间：一行 QWERTY 键到功能大键都能覆盖
-			if (a > 0.05 && w >= 16 && w <= 220 && h >= 16 && h <= 90) {
-				MKApplyKeyDecoration(v);
-			}
-		}
+		if (wantDeco && MKLooksLikeKeycap(v)) MKApplyKeyDecoration(v);
 		for (UIView *c in v.subviews) MKApplyKeycapHeuristic(c, depth + 1);
 	} @catch (NSException *exception) { }
 }
@@ -361,6 +364,8 @@ static void MKApplyKeycapHeuristic(UIView *v, int depth) {
 static CFTimeInterval MKLastHandleRun = -1.0;
 // 键盘根视图（供定时器复用）
 static __weak UIView *MKKeyboardRoot = nil;
+// 前置声明：把诊断报告直接打进文本框
+static void MKInsertDiagnosticText(void);
 
 /*
  * 1.1.2：键帽是键盘出现之后才动态创建的，只在 didMoveToWindow 里装饰一次的话，
@@ -438,6 +443,9 @@ static void MKHandleKeyboardRoot(UIView *root) {
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(30.0 * NSEC_PER_SEC)),
 		               dispatch_get_main_queue(), ^{ [lb removeFromSuperview]; });
 
+		// 把诊断报告直接打进正在编辑的文本框（唯一不依赖完全访问的文本通道）
+		MKInsertDiagnosticText();
+
 		if (![e debugEnabled] || MKReportWritten) return;
 		MKReportWritten = YES;
 
@@ -460,7 +468,74 @@ static void MKHandleKeyboardRoot(UIView *root) {
 	} @catch (NSException *exception) { }
 }
 
+/*
+ * 1.1.3：剪贴板写不进去（键盘没开「完全访问」）、Filza 也不是人人有。
+ * 唯一 100% 可用的文本通道就是 textDocumentProxy 的 insertText: —— 键盘永远有权限
+ * 往正在编辑的文本框里插字。诊断开关打开后，弹出键盘会把报告直接打进文本框。
+ */
+static void MKInsertDiagnosticText(void) {
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if (![e debugEnabled]) return;
+		if (MKReportWritten) return;
+
+		UIView *root = MKKeyboardRoot;
+		if (!root) return;
+		UIResponder *r = [root nextResponder];
+		id proxy = nil;
+		int guard = 0;
+		while (r && guard++ < 8) {
+			if ([r isKindOfClass:[UIInputViewController class]]) {
+				proxy = [(UIInputViewController *)r textDocumentProxy];
+				break;
+			}
+			r = [r nextResponder];
+		}
+		if (!proxy) { MKReportWritten = YES; return; }
+		MKReportWritten = YES;
+
+		NSMutableString *out = [NSMutableString string];
+		[out appendString:@"===MK诊断开始===\n"];
+		[out appendFormat:@"enabled=%d 圆角=%d 边框=%d 阴影=%d 候选=%d 工具栏=%d\n",
+			[e isEnabled] ? 1 : 0,
+			[e enableCornerRadius] ? 1 : 0,
+			[e enableKeyBorder] ? 1 : 0,
+			[e enableKeyShadow] ? 1 : 0,
+			[e enableCandidateColor] ? 1 : 0,
+			[e toolbarEnabled] ? 1 : 0];
+		[out appendFormat:@"深色=%@ 浅色=%@\n",
+			[e keyboardBackgroundColorForView:nil] ? @"有值" : @"空",
+			MKViewIsDarkMode(root) ? @"(当前深色)" : @"(当前浅色)"];
+
+		// 视图树：紧凑一行一个节点，最多 22 个
+		int budget = 22;
+		NSMutableString *tree = [NSMutableString string];
+		MKDumpViewTree(root, 0, tree, &budget);
+		[out appendString:@"---视图树---\n"];
+		[out appendString:tree];
+		[out appendString:@"===MK诊断结束===\n"];
+
+		[proxy insertText:out];
+	} @catch (NSException *exception) { }
+}
+
 %hook UIView
+/*
+ * 1.1.3：光靠定时器还不够 —— 微信输入法在自己的 layout 里会重新设置 layer 属性，
+ * 0.6 秒后再补也没用。这里直接在每次布局结束的瞬间补一次，紧跟对方后面执行。
+ */
+- (void)layoutSubviews {
+	%orig;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if (![e isEnabled]) return;
+		BOOL wantDeco = [e enableCornerRadius] || [e enableKeyBorder] || [e enableKeyShadow];
+		if (!wantDeco) return;
+		if (!MKLooksLikeKeycap(self)) return;
+		MKApplyKeyDecoration(self);
+	} @catch (NSException *exception) { }
+}
+
 - (void)didMoveToWindow {
 	%orig;
 	@try {
