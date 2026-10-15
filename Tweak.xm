@@ -77,6 +77,8 @@ static void MKApplyKeyDecoration(UIView *v) {
 
 // 诊断弹窗只弹一次；设置被改动后重置，方便反复排查
 static BOOL MKDebugAlertShown = NO;
+// 完整诊断报告（剪贴板/文件）只写一次
+static BOOL MKReportWritten = NO;
 
 // 只在微信/微信输入法里弹，避免每个 App 都弹。默认开启，拿到诊断信息后可在设置里关掉。
 static void MKShowDebugIfNeeded(void) {
@@ -347,81 +349,96 @@ static void MKApplyKeycapHeuristic(UIView *v, int depth) {
 	} @catch (NSException *exception) { }
 }
 
-%hook UIInputViewController
-- (void)viewDidAppear:(BOOL)animated {
-	%orig;
+/*
+ * 1.1.0：发现 UIInputViewController 的 viewDidAppear: 在微信输入法里很可能被子类
+ * 重写且没有调用 [super]，导致整套 hook 一次都不触发。
+ * 这里改用 UIView 的 didMoveToWindow —— 所有视图必然走到、且必然调 super，
+ * 是最可靠的「键盘已经显示出来了」信号。
+ */
+static CFTimeInterval MKLastHandleRun = -1.0;
+
+static void MKHandleKeyboardRoot(UIView *root) {
+	if (!root) return;
 	@try {
+		CFTimeInterval now = CACurrentMediaTime();
+		if (MKLastHandleRun > 0 && now - MKLastHandleRun < 1.0) return;
+		MKLastHandleRun = now;
+
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 		NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
+		BOOL target = [bid hasPrefix:@"com.tencent.wetype"] ||
+		              [bid isEqualToString:@"com.tencent.xin"];
+		if (!target) return;
 
-		// ---- 主题应用（不依赖任何 WB 类名）----
 		if ([e isEnabled]) {
 			if (![e hideSystemKeyBackground]) {
-				self.view.backgroundColor = [e keyboardBackgroundColorForView:self.view];
+				root.backgroundColor = [e keyboardBackgroundColorForView:root];
 			}
-			MKApplyKeycapHeuristic(self.view, 0);
+			MKApplyKeycapHeuristic(root, 0);
 			if ([e toolbarEnabled] && [[MergedKBToolbar shared] shouldShowInCurrentApp]) {
-				[[MergedKBToolbar shared] attachToDock:self.view];
+				[[MergedKBToolbar shared] attachToDock:root];
 			}
 		}
 
-		if (![e debugEnabled]) return;
-		if (![bid hasPrefix:@"com.tencent.wetype"] &&
-		    ![bid isEqualToString:@"com.tencent.xin"]) return;
+		// 状态行：无条件显示，不依赖任何开关，保证永远有反馈
+		[[root viewWithTag:99001] removeFromSuperview];
+		UILabel *lb = [[UILabel alloc] initWithFrame:
+			CGRectMake(4, 2, root.bounds.size.width - 8, 15)];
+		lb.tag = 99001;
+		lb.font = [UIFont systemFontOfSize:9];
+		lb.textColor = [UIColor yellowColor];
+		lb.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.7];
+		lb.text = [NSString stringWithFormat:
+			@"MK已加载✅ enabled=%@ prefs=%@ WBMain=%@ WBKey=%@ Dock=%@",
+			[e isEnabled] ? @"1" : @"0",
+			[[e prefsSource] substringToIndex:MIN(6u, [e prefsSource].length)],
+			NSClassFromString(@"WBMainInputView") ? @"1" : @"0",
+			NSClassFromString(@"WBKeyView") ? @"1" : @"0",
+			NSClassFromString(@"UIKeyboardDockView") ? @"1" : @"0"];
+		[root addSubview:lb];
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(30.0 * NSEC_PER_SEC)),
+		               dispatch_get_main_queue(), ^{ [lb removeFromSuperview]; });
 
-		// ---- 1.0.9 诊断：剪贴板 + 落盘 + 键盘上一行摘要 + 弹窗 ----
-		if (MKDebugAlertShown) return;
-		MKDebugAlertShown = YES;
+		if (![e debugEnabled] || MKReportWritten) return;
+		MKReportWritten = YES;
 
 		NSString *probe = MKClassProbe();
 		int budget = 70;
 		NSMutableString *tree = [NSMutableString string];
 		[tree appendString:@"\n=== 键盘视图树 ===\n"];
-		MKDumpViewTree(self.view, 0, tree, &budget);
+		MKDumpViewTree(root, 0, tree, &budget);
 
 		NSString *report = [NSString stringWithFormat:
-			@"进程: %@\n%@\n%@", bid, [e debugSummary], probe];
+			@"进程: %@\n%@\n%@\n%@", bid, [e debugSummary], probe, tree];
 
-		// 剪贴板（键盘扩展需开启“允许完全访问”才写得进，尽力而为）
 		@try { [UIPasteboard generalPasteboard].string = report; } @catch (NSException *x) { }
-
-		// 落盘（尽力而为，Filza 里可看）
 		for (NSString *p in @[@"/var/mobile/Library/Preferences/com.merged.keyboard.debug.txt",
 		                      @"/var/mobile/com.merged.keyboard.debug.txt"]) {
 			@try { [report writeToFile:p atomically:YES
 			                      encoding:NSUTF8StringEncoding error:nil]; }
 			@catch (NSException *x) { }
 		}
+	} @catch (NSException *exception) { }
+}
 
-		// 键盘顶部一行摘要（截图/肉眼可读）
-		UILabel *old = (UILabel *)[self.view viewWithTag:99001];
-		[old removeFromSuperview];
-		NSString *wbMain = NSClassFromString(@"WBMainInputView") ? @"有" : @"无";
-		NSString *wbKey  = NSClassFromString(@"WBKeyView")       ? @"有" : @"无";
-		NSString *dock   = NSClassFromString(@"UIKeyboardDockView") ? @"有" : @"无";
-		UILabel *lb = [[UILabel alloc] initWithFrame:
-			CGRectMake(4, 2, self.view.bounds.size.width - 8, 15)];
-		lb.tag = 99001;
-		lb.font = [UIFont systemFontOfSize:9];
-		lb.textColor = [UIColor yellowColor];
-		lb.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.65];
-		lb.text = [NSString stringWithFormat:@"MK诊断| WBMain:%@ WBKey:%@ Dock:%@ 剪贴板已写入报告",
-			wbMain, wbKey, dock];
-		[self.view addSubview:lb];
+%hook UIView
+- (void)didMoveToWindow {
+	%orig;
+	@try {
+		if (self.window == nil) return;
+		UIResponder *r = [self nextResponder];
+		if ([r isKindOfClass:[UIInputViewController class]]) {
+			MKHandleKeyboardRoot([(UIInputViewController *)r view]);
+		}
+	} @catch (NSException *exception) { }
+}
+%end
 
-		UIAlertController *ac = [UIAlertController
-			alertControllerWithTitle:@"MergedKeyboard 诊断 1.0.9"
-			                 message:@"报告已复制到剪贴板（若键盘开了“允许完全访问”）。\n粘贴发我即可。"
-			          preferredStyle:UIAlertControllerStyleAlert];
-		[ac addAction:[UIAlertAction actionWithTitle:@"好"
-		                                       style:UIAlertActionStyleCancel
-		                                     handler:nil]];
-		[ac addAction:[UIAlertAction actionWithTitle:@"复制诊断信息"
-		                                       style:UIAlertActionStyleDefault
-		                                     handler:^(UIAlertAction *action) {
-			[UIPasteboard generalPasteboard].string = report;
-		}]];
-		[self presentViewController:ac animated:YES completion:nil];
+%hook UIInputViewController
+- (void)viewDidAppear:(BOOL)animated {
+	%orig;
+	@try {
+		MKHandleKeyboardRoot(self.view);
 	} @catch (NSException *exception) { }
 }
 %end

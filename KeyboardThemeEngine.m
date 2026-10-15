@@ -292,6 +292,8 @@ BOOL MKViewIsDarkMode(UIView *view) {
 
 - (BOOL)debugEnabled { return _debugEnabled; }
 
+- (NSString *)prefsSource { return _prefsSource ?: @"(未知)"; }
+
 - (NSString *)debugSummary {
 	NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"(nil)";
 	NSMutableString *s = [NSMutableString string];
