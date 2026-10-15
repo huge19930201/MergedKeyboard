@@ -68,7 +68,21 @@
 
 @end
 
+/*
+ * ⚠️ 这两个函数是纯 C 符号，定义在 KeyboardThemeEngine.m（C 链接）里，
+ * 而 Tweak.xm 是 Logos 源文件、会按 ObjC++ 编译 —— 不包 extern "C" 的话
+ * C++ 端会去找 __Z16MKViewIsDarkModeP6UIView 这种修饰名，链接必然失败
+ * （报错：ld: symbol(s) not found for architecture arm64e）。
+ */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /// 工具函数：把 "#RRGGBB" / "#RRGGBBAA" 解析成 UIColor（支持带 # 或不带）
 UIColor *MKColorFromHex(NSString *hex);
 /// 判断某个视图当前是否处于深色模式
 BOOL MKViewIsDarkMode(UIView *view);
+
+#ifdef __cplusplus
+}
+#endif
