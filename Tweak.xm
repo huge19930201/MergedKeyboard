@@ -332,16 +332,19 @@ static void MKDumpViewTree(UIView *v, int depth, NSMutableString *s, int *budget
 	for (UIView *c in v.subviews) MKDumpViewTree(c, depth + 1, s, budget);
 }
 
-// 键帽启发式：只改「叶子 + 键帽尺寸 + 背景不透明」的小视图，绝不动容器
+// 键帽启发式：只改「叶子 + 背景不透明 + 键盘按键尺寸范围」的小视图，绝不动大容器
 static void MKApplyKeycapHeuristic(UIView *v, int depth) {
-	if (!v || depth > 5) return;
+	if (!v || depth > 6) return;
 	@try {
+		// 跳过我们自己加的东西（诊断标签）
+		if (v.tag == 99001) return;
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 		BOOL wantDeco = [e enableCornerRadius] || [e enableKeyBorder] || [e enableKeyShadow];
-		if (wantDeco && v.subviews.count == 0 && v.backgroundColor) {
+		if (wantDeco && v.subviews.count <= 2 && v.backgroundColor) {
 			CGFloat h = v.bounds.size.height, w = v.bounds.size.width;
 			CGFloat a = CGColorGetAlpha(v.backgroundColor.CGColor);
-			if (a > 0.05 && h >= 24 && h <= 80 && w >= 20 && w <= 140) {
+			// 放宽到常见键帽尺寸区间：一行 QWERTY 键到功能大键都能覆盖
+			if (a > 0.05 && w >= 16 && w <= 220 && h >= 16 && h <= 90) {
 				MKApplyKeyDecoration(v);
 			}
 		}
@@ -356,6 +359,41 @@ static void MKApplyKeycapHeuristic(UIView *v, int depth) {
  * 是最可靠的「键盘已经显示出来了」信号。
  */
 static CFTimeInterval MKLastHandleRun = -1.0;
+// 键盘根视图（供定时器复用）
+static __weak UIView *MKKeyboardRoot = nil;
+
+/*
+ * 1.1.2：键帽是键盘出现之后才动态创建的，只在 didMoveToWindow 里装饰一次的话，
+ * 那些后建的按键根本没被处理过 —— 表现就是「打开了阴影/圆角，但键帽毫无变化」。
+ * 所以这里再起一个 0.6 秒的重复任务循环套用，代价很低（只是遍历视图树）。
+ */
+static dispatch_source_t MKThemeTimer = NULL;
+
+static void MKStartThemeTimer(void) {
+	if (MKThemeTimer) return;
+	MKThemeTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+	                                      dispatch_get_main_queue());
+	if (!MKThemeTimer) return;
+	dispatch_source_set_timer(MKThemeTimer, DISPATCH_TIME_NOW,
+	                          (uint64_t)(0.6 * NSEC_PER_SEC),
+	                          (uint64_t)(0.2 * NSEC_PER_SEC));
+	dispatch_source_set_event_handler(MKThemeTimer, ^{
+		@try {
+			KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+			if (![e isEnabled]) return;
+			UIView *root = MKKeyboardRoot;
+			if (!root || !root.window) return;
+			if (![e hideSystemKeyBackground]) {
+				root.backgroundColor = [e keyboardBackgroundColorForView:root];
+			}
+			MKApplyKeycapHeuristic(root, 0);
+			if ([e toolbarEnabled] && [[MergedKBToolbar shared] shouldShowInCurrentApp]) {
+				[[MergedKBToolbar shared] attachToDock:root];
+			}
+		} @catch (NSException *exception) { }
+	});
+	dispatch_resume(MKThemeTimer);
+}
 
 static void MKHandleKeyboardRoot(UIView *root) {
 	if (!root) return;
@@ -369,6 +407,7 @@ static void MKHandleKeyboardRoot(UIView *root) {
 		BOOL target = [bid hasPrefix:@"com.tencent.wetype"] ||
 		              [bid isEqualToString:@"com.tencent.xin"];
 		if (!target) return;
+		MKKeyboardRoot = root;
 
 		if ([e isEnabled]) {
 			if (![e hideSystemKeyBackground]) {
@@ -633,6 +672,8 @@ static BOOL MKEmergencyDisabled(void) {
 			CFNotificationSuspensionBehaviorDeliverImmediately);
 
 		%init(KeyboardTheme);
+		// 键帽动态创建，只有周期重扫才能覆盖到后建的按键
+		MKStartThemeTimer();
 
 		// 1.1.1：无条件的「加载证明」，排掉一切开关因素。
 		// 只要文件出现，就说明 dylib 确实被加载了；不出现就是加载/注入层面的问题。
