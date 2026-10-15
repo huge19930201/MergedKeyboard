@@ -13,6 +13,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#import <stdlib.h>
 #import "KeyboardThemeEngine.h"
 #import "MergedKBToolbar.h"
 
@@ -283,28 +284,134 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 
 #pragma mark - 微信私有类 Hook（仅在微信内生效，类不存在时 Logos 自动跳过）
 
+#pragma mark - 诊断增强（1.0.9）：把真实类名带出来
+
 /*
- * 1.0.6 决定性诊断：UIInputViewController 是键盘扩展的根控制器，
- * 只要插件被注入到键盘扩展进程，这个 hook 一定命中 —— 不依赖任何 WB 或 UIKB 系列类名。
- * 命中后把整个键盘染成半透明红，并弹出诊断信息。
+ * 之前一直靠猜类名，猜错就全都不生效。
+ * 1.0.9 直接在运行时枚举当前进程里所有 WB* 开头的 Objective-C 类，
+ * 并把键盘视图树 dump 出来 —— 有了这份报告就不用再猜了。
  */
+static NSString *MKClassProbe(void) {
+	NSMutableString *s = [NSMutableString string];
+	NSArray *want = @[@"WBMainInputView", @"WBKeyboardView", @"WBKeyView",
+	                  @"WBTopBar", @"WBFunctionToolBar", @"WBConfigManager",
+	                  @"UIKeyboardDockView", @"UIInputView",
+	                  @"UIKBKeyView", @"UIKBKeyBackgroundView"];
+	for (NSString *c in want) {
+		[s appendFormat:@"%@:%@  ", c, NSClassFromString(c) ? @"有" : @"无"];
+	}
+	{
+		Class *classes = (Class *)malloc(sizeof(Class) * 30000);
+		if (classes) {
+			int count = objc_getClassList(classes, 30000);
+			NSMutableArray *wb = [NSMutableArray array];
+			for (int i = 0; i < count; i++) {
+				NSString *n = NSStringFromClass(classes[i]);
+				if ([n hasPrefix:@"WB"]) [wb addObject:n];
+			}
+			free(classes);
+			[wb sortUsingSelector:@selector(compare:)];
+			[s appendFormat:@"\n运行时 WB* 类(%lu个): %@\n",
+				(unsigned long)wb.count, [wb componentsJoinedByString:@", "]];
+		}
+	}
+	return s;
+}
+
+static void MKDumpViewTree(UIView *v, int depth, NSMutableString *s, int *budget) {
+	if (!v || depth > 4 || *budget <= 0) return;
+	(*budget)--;
+	NSString *pad = [@"" stringByPaddingToLength:(NSUInteger)(depth * 2)
+	                                    withString:@" " startingAtIndex:0];
+	CGFloat a = v.backgroundColor ? CGColorGetAlpha(v.backgroundColor.CGColor) : 0.0;
+	[s appendFormat:@"%@%@ %.0fx%.0f bgA=%.2f sub=%lu\n",
+		pad, NSStringFromClass(v.class),
+		v.bounds.size.width, v.bounds.size.height, a, (unsigned long)v.subviews.count];
+	for (UIView *c in v.subviews) MKDumpViewTree(c, depth + 1, s, budget);
+}
+
+// 键帽启发式：只改「叶子 + 键帽尺寸 + 背景不透明」的小视图，绝不动容器
+static void MKApplyKeycapHeuristic(UIView *v, int depth) {
+	if (!v || depth > 5) return;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		BOOL wantDeco = [e enableCornerRadius] || [e enableKeyBorder] || [e enableKeyShadow];
+		if (wantDeco && v.subviews.count == 0 && v.backgroundColor) {
+			CGFloat h = v.bounds.size.height, w = v.bounds.size.width;
+			CGFloat a = CGColorGetAlpha(v.backgroundColor.CGColor);
+			if (a > 0.05 && h >= 24 && h <= 80 && w >= 20 && w <= 140) {
+				MKApplyKeyDecoration(v);
+			}
+		}
+		for (UIView *c in v.subviews) MKApplyKeycapHeuristic(c, depth + 1);
+	} @catch (NSException *exception) { }
+}
+
 %hook UIInputViewController
 - (void)viewDidAppear:(BOOL)animated {
 	%orig;
 	@try {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
-		if (![e debugEnabled]) return;
-
 		NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
-		BOOL isWetype = [bid hasPrefix:@"com.tencent.wetype"];
-		BOOL isWeChat = [bid isEqualToString:@"com.tencent.xin"];
-		if (!isWetype && !isWeChat) return;
-		if (MKDebugAlertShown) return;
 
-		// 1.0.8：诊断不再染红键盘（上一版的红色会盖住主题色），只弹信息框
+		// ---- 主题应用（不依赖任何 WB 类名）----
+		if ([e isEnabled]) {
+			if (![e hideSystemKeyBackground]) {
+				self.view.backgroundColor = [e keyboardBackgroundColorForView:self.view];
+			}
+			MKApplyKeycapHeuristic(self.view, 0);
+			if ([e toolbarEnabled] && [[MergedKBToolbar shared] shouldShowInCurrentApp]) {
+				[[MergedKBToolbar shared] attachToDock:self.view];
+			}
+		}
+
+		if (![e debugEnabled]) return;
+		if (![bid hasPrefix:@"com.tencent.wetype"] &&
+		    ![bid isEqualToString:@"com.tencent.xin"]) return;
+
+		// ---- 1.0.9 诊断：剪贴板 + 落盘 + 键盘上一行摘要 + 弹窗 ----
+		if (MKDebugAlertShown) return;
+		MKDebugAlertShown = YES;
+
+		NSString *probe = MKClassProbe();
+		int budget = 70;
+		NSMutableString *tree = [NSMutableString string];
+		[tree appendString:@"\n=== 键盘视图树 ===\n"];
+		MKDumpViewTree(self.view, 0, tree, &budget);
+
+		NSString *report = [NSString stringWithFormat:
+			@"进程: %@\n%@\n%@", bid, [e debugSummary], probe];
+
+		// 剪贴板（键盘扩展需开启“允许完全访问”才写得进，尽力而为）
+		@try { [UIPasteboard generalPasteboard].string = report; } @catch (NSException *x) { }
+
+		// 落盘（尽力而为，Filza 里可看）
+		for (NSString *p in @[@"/var/mobile/Library/Preferences/com.merged.keyboard.debug.txt",
+		                      @"/var/mobile/com.merged.keyboard.debug.txt"]) {
+			@try { [report writeToFile:p atomically:YES
+			                      encoding:NSUTF8StringEncoding error:nil]; }
+			@catch (NSException *x) { }
+		}
+
+		// 键盘顶部一行摘要（截图/肉眼可读）
+		UILabel *old = (UILabel *)[self.view viewWithTag:99001];
+		[old removeFromSuperview];
+		NSString *wbMain = NSClassFromString(@"WBMainInputView") ? @"有" : @"无";
+		NSString *wbKey  = NSClassFromString(@"WBKeyView")       ? @"有" : @"无";
+		NSString *dock   = NSClassFromString(@"UIKeyboardDockView") ? @"有" : @"无";
+		UILabel *lb = [[UILabel alloc] initWithFrame:
+			CGRectMake(4, 2, self.view.bounds.size.width - 8, 15)];
+		lb.tag = 99001;
+		lb.font = [UIFont systemFontOfSize:9];
+		lb.textColor = [UIColor yellowColor];
+		lb.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.65];
+		lb.text = [NSString stringWithFormat:@"MK诊断| WBMain:%@ WBKey:%@ Dock:%@ 剪贴板已写入报告",
+			wbMain, wbKey, dock];
+		[self.view addSubview:lb];
+
 		UIAlertController *ac = [UIAlertController
-			alertControllerWithTitle:@"MergedKeyboard 诊断 (已注入 ✅)"
-			                 message:[e debugSummary]
+			alertControllerWithTitle:@"MergedKeyboard 诊断 1.0.9"
+			                 message:@"报告已复制到剪贴板（若键盘开了“允许完全访问”）。\n粘贴发我即可。"
 			          preferredStyle:UIAlertControllerStyleAlert];
 		[ac addAction:[UIAlertAction actionWithTitle:@"好"
 		                                       style:UIAlertActionStyleCancel
@@ -312,10 +419,9 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 		[ac addAction:[UIAlertAction actionWithTitle:@"复制诊断信息"
 		                                       style:UIAlertActionStyleDefault
 		                                     handler:^(UIAlertAction *action) {
-			[UIPasteboard generalPasteboard].string = [e debugSummary];
+			[UIPasteboard generalPasteboard].string = report;
 		}]];
 		[self presentViewController:ac animated:YES completion:nil];
-		MKDebugAlertShown = YES;
 	} @catch (NSException *exception) { }
 }
 %end
