@@ -12,9 +12,13 @@ on:
     tags: [ 'v*' ]
   workflow_dispatch:
 
+# 发版（创建 Release + 上传 deb）需要写权限；默认 GITHUB_TOKEN 只有 read。
+permissions:
+  contents: write
+
 jobs:
   # ============================ 主推：macOS（合法 arm64e） ============================
-  macos:
+  build:
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -41,7 +45,6 @@ jobs:
           mkdir -p "$THEOS/sdks" "$THEOS/toolchain"
           cp -a /tmp/theos-official/sdks/. "$THEOS/sdks/" 2>/dev/null || true
           cp -a /tmp/theos-official/toolchain/. "$THEOS/toolchain/" 2>/dev/null || true
-          ls "$THEOS/vendor/mod"
 
       - name: Build (${{ matrix.scheme }})
         run: |
@@ -56,61 +59,33 @@ jobs:
           DYLIB=$(find .theos -name 'MergedKeyboard.dylib' | head -1)
           echo "dylib: $DYLIB"
           vtool -show-build "$DYLIB" 2>/dev/null | head -40 || true
-          echo "--- LC_NOTE / arm64e ---"
-          otool -l "$DYLIB" 2>/dev/null | grep -A4 -i "LC_NOTE\|arm64e\|minos\|platform" | head -60 || true
           echo "--- 架构 ---"
           lipo -info "$DYLIB" || true
 
-      - name: Upload (${{ matrix.scheme }})
+      - name: Upload artifact (${{ matrix.scheme }})
         uses: actions/upload-artifact@v4
         with:
           name: MergedKeyboard-macos-${{ matrix.scheme }}
           path: out/*.deb
           if-no-files-found: error
 
-      - name: Release on tag (${{ matrix.scheme }})
-        if: startsWith(github.ref, 'refs/tags/')
+  # ============================ 发版：仅在 tag 推送时跑一次 ============================
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all macos artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MergedKeyboard-macos-*
+          merge-multiple: true
+          path: release-out
+
+      - name: List debs
+        run: ls -la release-out/
+
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: out/*.deb
-
-  # ============================ 对照：Linux（ABI 可能不合规，仅供参考） ============================
-  linux:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        scheme: [ rootless, roothide ]
-    name: Linux (${{ matrix.scheme }}) - 仅对照
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Theos
-        uses: Randomblock1/theos-action@v1
-        with:
-          theos-sdks: 'https://github.com/theos/sdks'
-
-      - name: Swap in roothide/theos (roothide only)
-        if: matrix.scheme == 'roothide'
-        run: |
-          set -e
-          mv "$THEOS" /tmp/theos-official
-          git clone --recursive https://github.com/roothide/theos.git "$THEOS"
-          mkdir -p "$THEOS/sdks" "$THEOS/toolchain"
-          cp -a /tmp/theos-official/sdks/. "$THEOS/sdks/" 2>/dev/null || true
-          cp -a /tmp/theos-official/toolchain/. "$THEOS/toolchain/" 2>/dev/null || true
-
-      - name: Build (${{ matrix.scheme }})
-        run: |
-          make clean
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=${{ matrix.scheme }}
-          mkdir -p out && cp packages/*.deb out/ || true
-
-      - name: Upload (${{ matrix.scheme }})
-        uses: actions/upload-artifact@v4
-        with:
-          name: MergedKeyboard-linux-${{ matrix.scheme }}
-          path: out/*.deb
-          if-no-files-found: error
+          files: release-out/*.deb
