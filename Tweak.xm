@@ -132,6 +132,8 @@ static void MKReloadPrefs(CFNotificationCenterRef center, void *observer,
 	[[KeyboardThemeEngine shared] reloadPrefs];
 	// 设置改了就允许诊断弹窗再弹一次
 	MKDebugAlertShown = NO;
+	// 1.2.2：报告标记也必须重置，否则第一次取到 nil 之后就再也不重试了
+	MKReportWritten = NO;
 }
 
 #pragma mark - 键盘主题 Hook 组
@@ -432,13 +434,24 @@ static void MKHandleKeyboardRoot(UIView *root) {
 		lb.font = [UIFont systemFontOfSize:9];
 		lb.textColor = [UIColor yellowColor];
 		lb.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.7];
+		// 把插件实际解析出的背景色 RGB 也打出来：#111111 应该显示 bg=17,17,17
+		CGFloat rr = 0, gg = 0, bb = 0;
+		@try {
+			CGColorRef cg = [e keyboardBackgroundColorForView:root].CGColor;
+			if (CGColorGetNumberOfComponents(cg) >= 3) {
+				const CGFloat *c = CGColorGetComponents(cg);
+				rr = c[0]; gg = c[1]; bb = c[2];
+			}
+		} @catch (NSException *x) { }
 		lb.text = [NSString stringWithFormat:
-			@"MK已加载✅ enabled=%@ prefs=%@ WBMain=%@ WBKey=%@ Dock=%@",
+			@"MK✅ e=%@ bg=%d,%d,%d 圆角=%@ 阴影=%@ 工具栏=%@ WBMain=%@ WBKey=%@",
 			[e isEnabled] ? @"1" : @"0",
-			[[e prefsSource] substringToIndex:MIN(6u, [e prefsSource].length)],
+			(int)(rr * 255), (int)(gg * 255), (int)(bb * 255),
+			[e enableCornerRadius] ? @"1" : @"0",
+			[e enableKeyShadow] ? @"1" : @"0",
+			[e toolbarEnabled] ? @"1" : @"0",
 			NSClassFromString(@"WBMainInputView") ? @"1" : @"0",
-			NSClassFromString(@"WBKeyView") ? @"1" : @"0",
-			NSClassFromString(@"UIKeyboardDockView") ? @"1" : @"0"];
+			NSClassFromString(@"WBKeyView") ? @"1" : @"0"];
 		[root addSubview:lb];
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(30.0 * NSEC_PER_SEC)),
 		               dispatch_get_main_queue(), ^{ [lb removeFromSuperview]; });
@@ -473,11 +486,61 @@ static void MKHandleKeyboardRoot(UIView *root) {
  * 唯一 100% 可用的文本通道就是 textDocumentProxy 的 insertText: —— 键盘永远有权限
  * 往正在编辑的文本框里插字。诊断开关打开后，弹出键盘会把报告直接打进文本框。
  */
+/*
+ * 只靠改颜色猜不出来，必须知道微信输入法每个类「有哪些方法」——
+ * 尤其是颜色/主题相关的 getter，原版就是靠 hook 这类方法生效的。
+ */
+static NSString *MKMethodsDump(void) {
+	NSMutableString *s = [NSMutableString string];
+	[s appendString:@"---WB类方法(筛选)---\n"];
+	Class *classes = (Class *)malloc(sizeof(Class) * 30000);
+	if (!classes) return s;
+	int count = objc_getClassList(classes, 30000);
+	int lines = 0;
+	for (int i = 0; i < count && lines < 40; i++) {
+		Class c = classes[i];
+		NSString *n = NSStringFromClass(c);
+		if (![n hasPrefix:@"WB"]) continue;
+		NSString *low = [n lowercaseString];
+		BOOL hit = [low containsString:@"color"] || [low containsString:@"key"] ||
+		           [low containsString:@"theme"] || [low containsString:@"config"] ||
+		           [low containsString:@"input"] || [low containsString:@"bar"] ||
+		           [low containsString:@"style"];
+		if (!hit) continue;
+		unsigned int mcount = 0;
+		Method *ms = class_copyMethodList(c, &mcount);
+		NSMutableArray *names = [NSMutableArray array];
+		for (unsigned int j = 0; j < mcount; j++) {
+			SEL sel = method_getName(ms[j]);
+			NSString *mn = NSStringFromSelector(sel);
+			if ([[mn lowercaseString] containsString:@"color"] ||
+			    [[mn lowercaseString] containsString:@"theme"] ||
+			    [[mn lowercaseString] containsString:@"radius"] ||
+			    [[mn lowercaseString] containsString:@"background"] ||
+			    [[mn lowercaseString] containsString:@"style"]) {
+				[names addObject:mn];
+			}
+		}
+		free(ms);
+		if (names.count == 0) continue;
+		[names sortUsingSelector:@selector(compare:)];
+		[s appendFormat:@"%@: %@\n", n, [names componentsJoinedByString:@", "]];
+		lines++;
+	}
+	free(classes);
+	return s;
+}
+
+static CFTimeInterval MKLastInsertTry = -1.0;
+
 static void MKInsertDiagnosticText(void) {
 	@try {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 		if (![e debugEnabled]) return;
-		if (MKReportWritten) return;
+		// 1.2.2：不再只试一次，改成 20 秒冷却后重试，取不到就下次键盘弹出再试
+		CFTimeInterval now = CACurrentMediaTime();
+		if (MKLastInsertTry > 0 && now - MKLastInsertTry < 20.0) return;
+		MKLastInsertTry = now;
 
 		UIView *root = MKKeyboardRoot;
 		if (!root) return;
@@ -491,7 +554,7 @@ static void MKInsertDiagnosticText(void) {
 			}
 			r = [r nextResponder];
 		}
-		if (!proxy) { MKReportWritten = YES; return; }
+		if (!proxy) return;
 		MKReportWritten = YES;
 
 		NSMutableString *out = [NSMutableString string];
@@ -513,6 +576,7 @@ static void MKInsertDiagnosticText(void) {
 		MKDumpViewTree(root, 0, tree, &budget);
 		[out appendString:@"---视图树---\n"];
 		[out appendString:tree];
+		[out appendString:MKMethodsDump()];
 		[out appendString:@"===MK诊断结束===\n"];
 
 		[proxy insertText:out];
