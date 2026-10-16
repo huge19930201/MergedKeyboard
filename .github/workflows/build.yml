@@ -9,6 +9,7 @@ name: Build MergedKeyboard (arm64e)
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
