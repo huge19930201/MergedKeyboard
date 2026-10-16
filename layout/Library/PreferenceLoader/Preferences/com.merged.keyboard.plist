@@ -83,6 +83,34 @@
 		</dict>
 		<dict>
 			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.merged.keyboard</string>
+			<key>key</key>
+			<string>unifyBackground</string>
+			<key>label</key>
+			<string>统一背景色（不分深浅）</string>
+			<key>PostNotification</key>
+			<string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.merged.keyboard</string>
+			<key>key</key>
+			<string>forceBackground</string>
+			<key>label</key>
+			<string>强力上色（整行面板一起刷）</string>
+			<key>PostNotification</key>
+			<string>com.merged.keyboard/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
 			<string>候选栏</string>
@@ -503,13 +531,13 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>
-			<false/>
+			<true/>
 			<key>defaults</key>
 			<string>com.merged.keyboard</string>
 			<key>key</key>
 			<string>debug</string>
 			<key>label</key>
-			<string>显示诊断弹窗</string>
+			<string>诊断模式（键盘顶部显示状态/视图树）</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -517,7 +545,7 @@
 			<key>footerAlignment</key>
 			<integer>1</integer>
 			<key>footerText</key>
-			<string>MergedKeyboard 1.2.2 — 合并版键盘增强，开源免费。改完颜色收回键盘再弹出即可。</string>
+			<string>MergedKeyboard 1.3.0 · 开源免费 · 仅作用于微信输入法键盘扩展</string>
 			<key>isStaticText</key>
 			<true/>
 		</dict>

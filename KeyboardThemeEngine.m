@@ -149,6 +149,9 @@ BOOL MKViewIsDarkMode(UIView *view) {
 
 	BOOL   _hideSystemKeyBackground;
 
+	BOOL   _unifyBackground;
+	BOOL   _forceBackground;
+
 	BOOL   _toolbarEnabled;
 
 	// 诊断
@@ -229,6 +232,9 @@ BOOL MKViewIsDarkMode(UIView *view) {
 	_keyShadowRadius              = (CGFloat)MKDouble(@"keyShadowRadius", 2.0, fb);
 
 	_hideSystemKeyBackground      = MKBool(@"hideSystemKeyBackground", NO, fb);
+	// 1.3.0：默认开启，避免「改了深色色值但手机在浅色模式」这种看不出效果的坑
+	_unifyBackground              = MKBool(@"unifyBackground", YES, fb);
+	_forceBackground              = MKBool(@"forceBackground", YES, fb);
 	_toolbarEnabled               = MKBool(@"toolbarEnabled", NO, fb);
 }
 
@@ -248,9 +254,19 @@ BOOL MKViewIsDarkMode(UIView *view) {
 
 - (BOOL)isEnabled { return _enabled; }
 
+- (NSString *)backgroundHexForView:(UIView *)view {
+	if (_unifyBackground) return _darkColorHex;
+	return MKViewIsDarkMode(view) ? _darkColorHex : _lightColorHex;
+}
+
+- (BOOL)unifyBackground { return _unifyBackground; }
+- (BOOL)forceBackground { return _forceBackground; }
+
 - (UIColor *)keyboardBackgroundColorForView:(UIView *)view {
-	NSString *hex = MKViewIsDarkMode(view) ? _darkColorHex : _lightColorHex;
-	return MKColorFromHex(hex) ?: [UIColor clearColor];
+	NSString *hex = [self backgroundHexForView:view];
+	UIColor *c = MKColorFromHex(hex);
+	// 解析不出来时不要返回透明（透明 = 看起来完全没生效），退回深色
+	return c ?: (MKColorFromHex(_darkColorHex) ?: [UIColor clearColor]);
 }
 
 - (BOOL)hideSystemKeyBackground { return _hideSystemKeyBackground; }
@@ -301,7 +317,10 @@ BOOL MKViewIsDarkMode(UIView *view) {
 	[s appendFormat:@"偏好来源: %@\n", _prefsSource ?: @"(未知)"];
 	[s appendFormat:@"总开关 enabled: %@\n", _enabled ? @"YES ✅" : @"NO ❌"];
 	[s appendFormat:@"微信功能栏: %@\n", _toolbarEnabled ? @"YES" : @"NO"];
-	[s appendFormat:@"深色背景: %@ / 浅色: %@\n", _darkColorHex, _lightColorHex];
+	[s appendFormat:@"深色背景: %@ / 浅色: %@ (当前实际用: %@)\n",
+		_darkColorHex, _lightColorHex, [self backgroundHexForView:nil]];
+	[s appendFormat:@"统一背景色: %@ / 强力上色: %@\n",
+		_unifyBackground ? @"开" : @"关", _forceBackground ? @"开" : @"关"];
 	[s appendFormat:@"键帽圆角: %@(%g) 边框:%@ 阴影:%@\n",
 		_enableCornerRadius ? @"开" : @"关", _cornerRadius,
 		_enableKeyBorder ? @"开" : @"关", _enableKeyShadow ? @"开" : @"关"];

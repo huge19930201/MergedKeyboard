@@ -21,6 +21,14 @@
 #pragma mark - 背景色（深浅色双值，根据视图当前的 userInterfaceStyle 选择）
 /// 键盘整体背景色（UIKeyboardDockView / UIInputView / UIKBBackdropView 等）
 - (UIColor *)keyboardBackgroundColorForView:(UIView *)view;
+/// 当前「实际会用上的」色值字符串（诊断用，直接回显 #RRGGBB）
+- (NSString *)backgroundHexForView:(UIView *)view;
+/// 1.3.0：不再区分深浅色，两种模式都用「深色模式背景」那个值。
+/// 这是为了排掉最常见的误会：用户只改了深色色值、手机却跑在浅色模式，
+/// 结果插件用的是默认的浅色 #F2F2F2（灰白），看上去就像「完全没生效」。
+- (BOOL)unifyBackground;
+/// 1.3.0：强力上色——除了根视图，还把前两层里的大块面板一起刷成背景色。
+- (BOOL)forceBackground;
 /// 是否隐藏系统键盘背景（把 UIKBBackdropView 设为透明）
 - (BOOL)hideSystemKeyBackground;
 

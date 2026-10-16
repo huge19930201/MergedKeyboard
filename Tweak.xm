@@ -79,6 +79,9 @@ static void MKApplyKeyDecoration(UIView *v) {
 static BOOL MKDebugAlertShown = NO;
 // 完整诊断报告（剪贴板/文件）只写一次
 static BOOL MKReportWritten = NO;
+// 键盘根视图（供定时器 / 键帽判定复用）。必须声明在最前面：
+// MKLooksLikeKeycap() 会用到它，而它定义在下面的位置。
+static __weak UIView *MKKeyboardRoot = nil;
 
 // 只在微信/微信输入法里弹，避免每个 App 都弹。默认开启，拿到诊断信息后可在设置里关掉。
 static void MKShowDebugIfNeeded(void) {
@@ -340,10 +343,47 @@ static BOOL MKLooksLikeKeycap(UIView *v) {
 	if (w <= 0 || h <= 0) return NO;
 	if (w < 14 || h < 14) return NO;
 	if (w > 240 || h > 96) return NO;
-	if (v.subviews.count > 2) return NO;
-	if (v.tag == 99001) return NO;              // 我们自己的诊断标签
+	// 1.3.0：微信输入法的键帽内部经常套了不止 2 层（图标 + 高亮层 + 遮罩），
+	// 之前卡得太死导致几乎一个键帽都命中不了。放宽到 4 层。
+	if (v.subviews.count > 4) return NO;
+	if (v.tag == 99001 || v.tag == 99002) return NO;   // 我们自己的诊断标签
 	if ([v isKindOfClass:[UIScrollView class]]) return NO; // 别碰功能栏
+	// 整行宽的一定不是键帽（那是要上色的面板）
+	UIView *root = MKKeyboardRoot;
+	if (root && w >= root.bounds.size.width * 0.9) return NO;
 	return YES;
+}
+
+/*
+ * 1.3.0 强力上色。
+ * 之前只给「根视图」设 backgroundColor，结果微信输入法在自己的根视图上
+ * 又盖了若干层不透明的整行面板，我们设的颜色被完整遮住 —— 表现就是
+ * 「色值填了 #111111，键盘还是灰白」。
+ * 这里把根视图 + 前两层里的「大块面板」一起刷成背景色。
+ * 只动 backgroundColor，绝不动 cornerRadius / masksToBounds
+ * （1.0.7 就是因为递归套圆角把键盘布局裁坏了）。
+ */
+static void MKForceBackgroundTree(UIView *root, int depth) {
+	if (!root) return;
+	@try {
+		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
+		if (![e isEnabled] || [e hideSystemKeyBackground]) return;
+		UIColor *c = [e keyboardBackgroundColorForView:root];
+		CGFloat rw = root.bounds.size.width;
+		if (depth == 0) {
+			root.backgroundColor = c;
+		}
+		if (depth > 2) return;
+		if (![e forceBackground]) return;
+		for (UIView *sub in root.subviews) {
+			if (sub.tag == 99001 || sub.tag == 99002) continue;
+			if (sub.hidden || sub.alpha < 0.05) continue;
+			CGFloat w = sub.bounds.size.width, h = sub.bounds.size.height;
+			if (w < rw * 0.5 || h < 18.0) continue;      // 只刷整行/整块面板
+			sub.backgroundColor = c;
+			MKForceBackgroundTree(sub, depth + 1);
+		}
+	} @catch (NSException *exception) { }
 }
 
 // 键帽启发式：深度遍历，符合尺寸的就套装饰，绝不动大容器
@@ -364,10 +404,11 @@ static void MKApplyKeycapHeuristic(UIView *v, int depth) {
  * 是最可靠的「键盘已经显示出来了」信号。
  */
 static CFTimeInterval MKLastHandleRun = -1.0;
-// 键盘根视图（供定时器复用）
-static __weak UIView *MKKeyboardRoot = nil;
+// 键盘根视图声明已上移到文件开头（MKLooksLikeKeycap 也要用）
 // 前置声明：把诊断报告直接打进文本框
 static void MKInsertDiagnosticText(void);
+// 1.3.0：方法表 dump 定义在后面，MKHandleKeyboardRoot 里要用，必须先声明
+static NSString *MKMethodsDump(void);
 
 /*
  * 1.1.2：键帽是键盘出现之后才动态创建的，只在 didMoveToWindow 里装饰一次的话，
@@ -382,17 +423,16 @@ static void MKStartThemeTimer(void) {
 	                                      dispatch_get_main_queue());
 	if (!MKThemeTimer) return;
 	dispatch_source_set_timer(MKThemeTimer, DISPATCH_TIME_NOW,
-	                          (uint64_t)(0.6 * NSEC_PER_SEC),
-	                          (uint64_t)(0.2 * NSEC_PER_SEC));
+	                          (uint64_t)(0.4 * NSEC_PER_SEC),
+	                          (uint64_t)(0.1 * NSEC_PER_SEC));
 	dispatch_source_set_event_handler(MKThemeTimer, ^{
 		@try {
 			KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 			if (![e isEnabled]) return;
 			UIView *root = MKKeyboardRoot;
 			if (!root || !root.window) return;
-			if (![e hideSystemKeyBackground]) {
-				root.backgroundColor = [e keyboardBackgroundColorForView:root];
-			}
+			// 1.3.0：改成强力上色（根视图 + 前两层大块面板）
+			MKForceBackgroundTree(root, 0);
 			MKApplyKeycapHeuristic(root, 0);
 			if ([e toolbarEnabled] && [[MergedKBToolbar shared] shouldShowInCurrentApp]) {
 				[[MergedKBToolbar shared] attachToDock:root];
@@ -417,9 +457,8 @@ static void MKHandleKeyboardRoot(UIView *root) {
 		MKKeyboardRoot = root;
 
 		if ([e isEnabled]) {
-			if (![e hideSystemKeyBackground]) {
-				root.backgroundColor = [e keyboardBackgroundColorForView:root];
-			}
+			// 1.3.0：强力上色（根视图 + 前两层大块面板）
+			MKForceBackgroundTree(root, 0);
 			MKApplyKeycapHeuristic(root, 0);
 			if ([e toolbarEnabled] && [[MergedKBToolbar shared] shouldShowInCurrentApp]) {
 				[[MergedKBToolbar shared] attachToDock:root];
@@ -434,9 +473,11 @@ static void MKHandleKeyboardRoot(UIView *root) {
 		lb.font = [UIFont systemFontOfSize:9];
 		lb.textColor = [UIColor yellowColor];
 		lb.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.7];
-		// 把插件实际解析出的背景色 RGB 也打出来：#111111 应该显示 bg=17,17,17
+		// 回显插件「实际用上的」色值：#111111 就应该原样显示 #111111
+		NSString *hex = @"?";
 		CGFloat rr = 0, gg = 0, bb = 0;
 		@try {
+			hex = [e backgroundHexForView:root] ?: @"?";
 			CGColorRef cg = [e keyboardBackgroundColorForView:root].CGColor;
 			if (CGColorGetNumberOfComponents(cg) >= 3) {
 				const CGFloat *c = CGColorGetComponents(cg);
@@ -444,17 +485,59 @@ static void MKHandleKeyboardRoot(UIView *root) {
 			}
 		} @catch (NSException *x) { }
 		lb.text = [NSString stringWithFormat:
-			@"MK✅ e=%@ bg=%d,%d,%d 圆角=%@ 阴影=%@ 工具栏=%@ WBMain=%@ WBKey=%@",
+			@"MK✅ e=%@ 色=%@(%d,%d,%d) 圆角=%@ 阴影=%@ 边框=%@",
 			[e isEnabled] ? @"1" : @"0",
+			hex,
 			(int)(rr * 255), (int)(gg * 255), (int)(bb * 255),
 			[e enableCornerRadius] ? @"1" : @"0",
 			[e enableKeyShadow] ? @"1" : @"0",
-			[e toolbarEnabled] ? @"1" : @"0",
-			NSClassFromString(@"WBMainInputView") ? @"1" : @"0",
-			NSClassFromString(@"WBKeyView") ? @"1" : @"0"];
+			[e enableKeyBorder] ? @"1" : @"0"];
 		[root addSubview:lb];
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(30.0 * NSEC_PER_SEC)),
 		               dispatch_get_main_queue(), ^{ [lb removeFromSuperview]; });
+
+		/*
+		 * 1.3.0：新增「可读诊断浮层」。
+		 * 之前把报告写进文本框，用户反馈根本没出现（微信输入法的
+		 * textDocumentProxy 可能被自己的实现拦掉了）。
+		 * 截图上的文字用户是能读给我的，所以改成直接把视图树画在键盘顶部，
+		 * 用最小字号堆 14 行，60 秒后自动消失。
+		 */
+		@try {
+			if ([e debugEnabled]) {
+				[[root viewWithTag:99002] removeFromSuperview];
+				int budget = 14;
+				NSMutableString *tree = [NSMutableString string];
+				MKDumpViewTree(root, 0, tree, &budget);
+				NSMutableString *info = [NSMutableString string];
+				[info appendFormat:@"bid=%@\n", bid];
+				[info appendFormat:@"root=%@ %.0fx%.0f\n",
+					NSStringFromClass(root.class),
+					root.bounds.size.width, root.bounds.size.height];
+				[info appendFormat:@"统一色=%d 强力=%d\n",
+					[e unifyBackground] ? 1 : 0, [e forceBackground] ? 1 : 0];
+				[info appendString:tree];
+				[info appendString:MKMethodsDump()];
+				// 浮层放得下大约 900 个字符，多了也读不出来，直接截断
+				if (info.length > 900) {
+					[info deleteCharactersInRange:NSMakeRange(900, info.length - 900)];
+				}
+
+				UILabel *dbg = [[UILabel alloc] initWithFrame:
+					CGRectMake(2, 18, root.bounds.size.width - 4, 130)];
+				dbg.tag = 99002;
+				dbg.numberOfLines = 0;
+				dbg.font = [UIFont systemFontOfSize:7];
+				dbg.textColor = [UIColor greenColor];
+				dbg.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.85];
+				dbg.userInteractionEnabled = NO;
+				dbg.text = info;
+				[root addSubview:dbg];
+				[root bringSubviewToFront:dbg];
+				dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(60.0 * NSEC_PER_SEC)),
+				               dispatch_get_main_queue(), ^{ [dbg removeFromSuperview]; });
+			}
+		} @catch (NSException *x) { }
 
 		// 把诊断报告直接打进正在编辑的文本框（唯一不依赖完全访问的文本通道）
 		MKInsertDiagnosticText();
