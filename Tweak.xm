@@ -564,6 +564,13 @@ static BOOL MKIsInKeyboardTree(UIView *v) {
 	@try {
 		KeyboardThemeEngine *e = [KeyboardThemeEngine shared];
 		if (![e isEnabled]) return;
+
+		// 1.2.1：面板级背景也在布局结束的瞬间替换（否则又被微信下一帧盖回去）
+		if (![e hideSystemKeyBackground] && MKIsInKeyboardTree(self) &&
+		    self.bounds.size.width >= 150.0) {
+			self.backgroundColor = [e keyboardBackgroundColorForView:self];
+		}
+
 		BOOL wantDeco = [e enableCornerRadius] || [e enableKeyBorder] || [e enableKeyShadow];
 		if (!wantDeco) return;
 		if (!MKLooksLikeKeycap(self)) return;
